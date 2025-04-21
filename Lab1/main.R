@@ -201,3 +201,24 @@ str(wesbrook2)
 
 # Podzielenie danych metodą stratyfikowanego próbkowania
 library(caTools)
+
+set.seed(1234)
+train_val_set <- sample.split(wesbrook2$WESBROOK, SplitRatio = 0.8)
+wesbrook2_stratified_train <- subset(wesbrook2, train_val_set == TRUE)
+wesbrook2_stratified_val <- subset(wesbrook2, train_val_set == FALSE) # zbiór walidacyjny
+
+cat("\nWymiary zbioru treningowego:", dim(wesbrook2_stratified_train), "\n")
+cat("Wymiary zbioru walidacyjnego:", dim(wesbrook2_stratified_val), "\n")
+
+cat("\nProporcje zmiennej WESBROOK w zbiorze treningowym:\n")
+print(table(wesbrook2_stratified_train$WESBROOK) / nrow(wesbrook2_stratified_train))
+cat("Proporcje zmiennej WESBROOK w zbiorze walidacyjnym:\n")
+print(table(wesbrook2_stratified_val$WESBROOK) / nrow(wesbrook2_stratified_val))
+
+# Zapisanie wyników
+write_csv(wesbrook2_stratified_train, "data/lab-1/wesbrook_train.csv")
+write_csv(wesbrook2_stratified_val, "data/lab-1/wesbrook_val.csv")
+
+cat("\nAnaliza i przygotowanie danych zakończone pomyślnie.\n")
+
+
