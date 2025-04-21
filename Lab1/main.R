@@ -94,3 +94,24 @@ for (i in seq_along(X)) {
 # Utworzenie zbioru Wesbrook2 z wybranymi zmiennymi
 wesbrook2 <- wesbrook_dataset[c("TOTLGIVE", "DWEL_VAL", "AVE_INC",
                                 names(wesbrook_dataset)[sapply(wesbrook_dataset, is.factor)])]
+
+if (!"WESBROOK_original" %in% names(wesbrook2)) {
+  wesbrook2$WESBROOK_original <- wesbrook_dataset$WESBROOK_original
+}
+
+# Wykresy mozaikowe dla zmiennych kategorycznych
+cat("\n Tworzenie wykresów mozaikowych dla zmiennych kategorycznych:\n")
+categorical_vars <- wesbrook2 %>% select_if(is.factor)
+# Usuwamy zmienne, ktore moglyby sie zdoublowac dla wykresow czyli 1:1
+categorical_vars <- categorical_vars[!names(categorical_vars) %in% c("WESBROOK", "WESBROOK_original")]
+
+for (var in names(categorical_vars)) {
+  cat("Tworzenie wykresu mozaikowego dla zmiennej", var, "\n")
+  png(paste0("data/lab-1/mosaic_", var, "_WESBROOK.png"), width = 800, height = 600)
+  mosaicplot(as.formula(paste(var, "~ WESBROOK_original")), data = wesbrook2,
+             main = paste("Distribution of variable", var, "relative to WESBROOK"),
+             color = TRUE,
+             xlab = var,
+             ylab = "WESBROOK (donation > 1000$ in a recent fiscal year)")
+  dev.off()
+}
