@@ -115,3 +115,38 @@ for (var in names(categorical_vars)) {
              ylab = "WESBROOK (donation > 1000$ in a recent fiscal year)")
   dev.off()
 }
+
+# Zadanie 4: Wizualna analiza danych - histogramy
+X <- c(
+  "TOTLGIVE",
+  "DWEL_VAL",
+  "AVE_INC"
+)
+
+X_labels <- c(
+  "Total donation",
+  "Average housing value in region",
+  "Average income"
+)
+
+for (i in seq_along(X)) {
+  cat("Tworzenie histogramu dla zmiennej", X[i], "\n")
+  p <- ggplot(wesbrook2) +
+    geom_histogram(
+      mapping = aes_string(x = X[i]),
+      bins = 50,
+      fill = "cyan",
+      color = "black"
+    ) +
+    labs(title = paste("Histogram of", X_labels[i]),
+         x = X_labels[i],
+         y = "Frequency") +
+    theme_minimal() +
+    theme(
+      text = element_text(size = 14),
+      plot.background = element_rect(fill = "white", color = NA),
+      panel.background = element_rect(fill = "white", color = NA)
+    )
+
+  ggsave(paste0("data/lab-1/histogram_", X[i], ".png"), plot = p, width = 10, height = 8, dpi = 300)
+}
