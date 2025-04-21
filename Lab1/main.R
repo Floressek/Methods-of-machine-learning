@@ -11,9 +11,8 @@ wesbrook_dataset <- wesbrook_dataset %>%
 
 glimpse(wesbrook_dataset)
 
-# Zadanie 2
+# Zadanie 2 - determine and eliminate unnecessary columns
 summary(wesbrook_dataset)
-
 
 # Zadanie 3
 # Checking for missing values
@@ -23,7 +22,7 @@ wesbrook_dataset <- subset(
     !is.na("HH_1PER") &
     !is.na("HH_2PER"))
 
-# Deleting columns we deemed unnecessary
+# Deleting columns we deemed unnecessary in zadanie 2
 wesbrook_dataset <- subset(wesbrook_dataset,
                            select = -c(ID, GRADYR1,
                                        FACULTY1, DEPT1,
