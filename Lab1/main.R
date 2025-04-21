@@ -43,3 +43,54 @@ wesbrook_dataset <- subset(wesbrook_dataset,
 
 cat("\n Statystyki po wstępnym czyszczeniu danych:\n")
 summary(wesbrook_dataset)
+
+# Wykonanie wykresów pudełkowych dla wszystkich zmiennych numerycznych
+X <- c(
+  "TOTLGIVE",
+  "MOV_DWEL",
+  "HH_1PER",
+  "HH_2PER",
+  "HH_3PER",
+  "HH_45PER",
+  "AVE_INC",
+  "DWEL_VAL",
+  "CNDN_PCT",
+  "ENG_PCT",
+  "OWN_PCT",
+  "SD_INC"
+)
+
+X_labels <- c("Total donation",
+              "% of households in the region living in trailers",
+              "% of single person households in the region",
+              "% of two-person households in the region",
+              "% of three-person households in the region",
+              "% of four- to five-person households in the region",
+              "Average income", "Average housing value in region",
+              "% of Canadian in region",
+              "% of people for whom English is their first language in the region",
+              "% of households in the region with own dwelling",
+              "Standard deviation for income in the region")
+
+# Bedziemy uzywac ggplot2 dla wizualizacji wykresow
+for (i in seq_along(X)) {
+  cat("Tworzenie wykresu pudełkowego dla zmiennej", X[i], "\n")
+  p <- ggplot(wesbrook_dataset, aes_string(x = "WESBROOK_original", y = X[i])) +
+    geom_boxplot(fill = "skyblue", color = "darkblue") +
+    labs(title = paste(X_labels[i], "by donation bigger than 1000$ in last year"),
+         x = "Donation bigger than 1000$ in last year (WESBROOK yes/no)",
+         y = X_labels[i]) +
+    theme_minimal() +
+    theme(
+      text = element_text(size = 12),
+      plot.background = element_rect(fill = "white", color = NA),
+      panel.background = element_rect(fill = "white", color = NA)
+    )
+
+  # Zapisanie do pliku
+  ggsave(paste0("data/lab-1/boxplot_", X[i], ".png"), plot = p, width = 10, height = 8, dpi = 300)
+}
+
+# Utworzenie zbioru Wesbrook2 z wybranymi zmiennymi
+wesbrook2 <- wesbrook_dataset[c("TOTLGIVE", "DWEL_VAL", "AVE_INC",
+                                names(wesbrook_dataset)[sapply(wesbrook_dataset, is.factor)])]
