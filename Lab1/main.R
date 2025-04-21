@@ -150,3 +150,54 @@ for (i in seq_along(X)) {
 
   ggsave(paste0("data/lab-1/histogram_", X[i], ".png"), plot = p, width = 10, height = 8, dpi = 300)
 }
+
+# Zadanie 5: Przygotowanie danych do analizy
+cat("\n Statystyki przed przygotowaniem danych:\n")
+summary(wesbrook2)
+print(head(wesbrook2))
+
+# Imputacja brakujących wartości
+wesbrook2 <- wesbrook2 %>%
+  mutate(AVE_INC = ifelse(is.na(AVE_INC), median(AVE_INC, na.rm = TRUE), AVE_INC))
+
+# Imputacja zmiennej MARITAL - dodanie "U" as unknown na miejsce NA
+wesbrook2$MARITAL <- as.character(wesbrook2$MARITAL) # factor -> character conversion
+wesbrook2$MARITAL[is.na(wesbrook2$MARITAL)] <- "U"
+wesbrook2$MARITAL <- as.factor(wesbrook2$MARITAL)
+
+# Sprawdzenie, czy zmienne są w odpowiednim formacie
+cat("\n Liczba brakujących wartości po imputacji:\n")
+print(colSums(is.na(wesbrook2)))
+
+# Normalizacja zmiennych numerycznych poprzez min-max scaling
+wesbrook2 <- wesbrook2 %>%
+  mutate(DWEL_VAL = (DWEL_VAL - min(DWEL_VAL)) / (max(DWEL_VAL) - min(DWEL_VAL)) *
+    (1 - 0) + 0) %>%
+  mutate(AVE_INC = (AVE_INC - min(AVE_INC)) / (max(AVE_INC) - min(AVE_INC)) *
+    (1 - 0) + 0) %>%
+  mutate(TOTLGIVE = (TOTLGIVE - min(TOTLGIVE)) / (max(TOTLGIVE) - min(TOTLGIVE)) *
+    (1 - 0) + 0)
+
+cat("\n Statystyki po normalizacji:\n")
+summary(wesbrook2)
+
+# Wprowadzneie kodowania 0-1 da zmiennej MARITAL
+cat("\n Unikalne wartości zmiennej MARITAL:\n")
+print(table(wesbrook2$MARITAL, useNA = 'ifany')) # ifany - pokazuje tylko te zmienne, ktore sa NA
+
+wesbrook2$MARITAL <- as.factor(wesbrook2$MARITAL)
+merital_dummies <- model.matrix(~0 + MARITAL, data = wesbrook2) # ~0 - bez interceptu
+colnames(merital_dummies) <- gsub("^MARITAL", "MARITAL_", colnames(merital_dummies))
+
+# Dodanie zmiennych do zbioru danych
+wesbrook2 <- cbind(wesbrook2, as.data.frame(merital_dummies))
+wesbrook2$MARITAL <- NULL # usunięcie oryginalnej zmiennej MARITAL
+
+# Usun pomocna przy wizualizacji zmienną WESBROOK_original
+wesbrook2$WESBROOK_original <- NULL
+
+cat("\nStruktura zbioru wesbrook2 po przygotowaniu danych:\n")
+str(wesbrook2)
+
+# Podzielenie danych metodą stratyfikowanego próbkowania
+library(caTools)
