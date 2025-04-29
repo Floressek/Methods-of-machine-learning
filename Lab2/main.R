@@ -9,6 +9,7 @@ library(rpart)
 library(rpart.plot)
 library(randomForest)
 library(xgboost)
+library(caret)
 
 wesbrook_dataset <- read_csv("http://jolej.linuxpl.info/Wesbrook.csv",
                              col_types = "ificifffffffffffffinnnnniifnnnn")
@@ -100,17 +101,17 @@ wesbrook_features_numeric <- wesbrook_features %>%
 wesbrook_features <- cbind(wesbrook_features_numeric, as.data.frame(dummy_matrix))
 
 # Zeby zapewnic deterministyczność wyników, ustawiamy ziarno
-set.seed(1234) #FIXME: test different seeds for data splitting
+set.seed(4321) #FIXME: test different seeds for data splitting
 # Ustalamy proporcje podziału
 sample_index <- sample(nrow(wesbrook_features), round(nrow(wesbrook_features) * 0.75), replace = FALSE)
 
 # Tworzymy zbiory treningowe i testowe
-wesbrook_features_train <- wesbrook_features[sample_index, ]
-wesbrook_features_test <- wesbrook_features[-sample_index, ]
+wesbrook_features_train <- wesbrook_features[sample_index,]
+wesbrook_features_test <- wesbrook_features[-sample_index,]
 
 # Zbiory z klasami
-wesbrook_labels_train <- as.factor(wesbrook_labels[sample_index, ]$WESBROOK)
-wesbrook_labels_test <- as.factor(wesbrook_labels[-sample_index, ]$WESBROOK)
+wesbrook_labels_train <- as.factor(wesbrook_labels[sample_index,]$WESBROOK)
+wesbrook_labels_test <- as.factor(wesbrook_labels[-sample_index,]$WESBROOK)
 
 # Zliczemy liczby klas w zbiorach
 table(wesbrook_labels_train)
@@ -122,7 +123,7 @@ wesbrook <- wesbrook2
 
 # Postepujemy podobnie jak w przypadku zbiorów treningowych i testowych
 formula_full_text <- paste("~ 0 +", paste(categorical_vars, collapse = " + "))
-formula_full_obj <-  as.formula(formula_full_next)
+formula_full_obj <- as.formula(formula_full_text)
 
 # Tworzymy macierz zmiennych dummy
 dummy_matrix_full <- model.matrix(formula_full_obj, data = wesbrook)
@@ -134,8 +135,55 @@ wesbrook <- cbind(wesbrook_numeric, as.data.frame(dummy_matrix_full))
 set.seed(1234)
 sample_index <- sample(nrow(wesbrook), round(nrow(wesbrook) * 0.75),
                        replace = FALSE)
-wesbrook_train <- wesbrook[sample_index, ]
-wesbrook_test <- wesbrook[-sample_index, ]
+wesbrook_train <- wesbrook[sample_index,]
+wesbrook_test <- wesbrook[-sample_index,]
 
 table(wesbrook_train$WESBROOK)
 table(wesbrook_test$WESBROOK)
+
+# Budowa modeli
+
+# K-najbliższych sąsiadów, wstepnie dajemy k=5, pozniej sprawdzimy dla pozostalych
+wesbrook_knn_predictions <-
+  knn(
+    train = wesbrook_features_train,
+    test = wesbrook_features_test,
+    cl = wesbrook_labels_train, # cl to klasy
+    k = 5
+  )
+
+# Macierz pomyłek do ktorej dajemy nasze przewidywania oraz etykiety
+confusionMatrix(wesbrook_knn_predictions, wesbrook_labels_test)
+
+# Walidacja krzyzowa K-krotna
+kcv_knn <- train(
+  WESBROOK ~ ., # wszystkie zmienne
+  data = wesbrook_train,
+  metric = "Accuracy",
+  method = "knn",
+  trControl = trainControl(method = "cv", number = 5, verboseIter = TRUE),
+)
+
+kcv_knn
+
+# Przewidywanie na zbiorze testowym
+kcv_knn_predictions <- predict(kcv_knn, wesbrook_test, type = "raw")
+confusionMatrix(kcv_knn_predictions, wesbrook_test$WESBROOK)
+
+# Walidacja krzyzowa metoda LGOCV dla losowego podzialu gdzie mamy wiele cech dla danej zmiennej
+rcv_knn <- train(
+  WESBROOK ~ ., # wszystkie zmienne
+  data = wesbrook_train,
+  metric = "Accuracy",
+  method = "knn",
+  trControl = trainControl(method = "LGOCV", p = .2, number = 10, verboseIter = TRUE),
+)
+
+rcv_knn
+
+# Przewidywanie na zbiorze testowym
+rcv_knn_predictions <- predict(rcv_knn, wesbrook_test, type = "raw")
+confusionMatrix(rcv_knn_predictions, wesbrook_test$WESBROOK)
+
+# Klasyfikator k-najbliższych sąsiadów, dla którego metoda k-krotnej walidacji krzyżowej dobrała parametr
+# k=7, a metoda losowej walidacji krzyżowej także wybrała k=7. Osiągamy w obydwu przypadkach zbliżoną skuteczność — odpowiednio 71.43% i 72.1%. To wskazuje na stabilność modelu niezależnie od metody walidacji. W macierzy pomyłek widać, że większy problem stanowią błędne klasyfikacje próbek pozytywnych, co w kontekście zadania może prowadzić do utraty potencjalnych donacji. Nie wykonano analizy krzywej ROC z uwagi na ograniczenia techniczne lub formalne tego typu zadania klasyfikacyjnego.
