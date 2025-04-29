@@ -115,3 +115,27 @@ wesbrook_labels_test <- as.factor(wesbrook_labels[-sample_index, ]$WESBROOK)
 # Zliczemy liczby klas w zbiorach
 table(wesbrook_labels_train)
 table(wesbrook_labels_test)
+
+# Zbiór z niepodzielonymi cechami i klasami
+# Przygotowujemy pełny zbiór danych włącznie ze zmienną WESBROOK dla operacji na paczkach caret
+wesbrook <- wesbrook2
+
+# Postepujemy podobnie jak w przypadku zbiorów treningowych i testowych
+formula_full_text <- paste("~ 0 +", paste(categorical_vars, collapse = " + "))
+formula_full_obj <-  as.formula(formula_full_next)
+
+# Tworzymy macierz zmiennych dummy
+dummy_matrix_full <- model.matrix(formula_full_obj, data = wesbrook)
+
+wesbrook_numeric <- wesbrook %>%
+  select(WESBROOK, TOTLGIVE, AVE_INC, DWEL_VAL)
+wesbrook <- cbind(wesbrook_numeric, as.data.frame(dummy_matrix_full))
+
+set.seed(1234)
+sample_index <- sample(nrow(wesbrook), round(nrow(wesbrook) * 0.75),
+                       replace = FALSE)
+wesbrook_train <- wesbrook[sample_index, ]
+wesbrook_test <- wesbrook[-sample_index, ]
+
+table(wesbrook_train$WESBROOK)
+table(wesbrook_test$WESBROOK)
