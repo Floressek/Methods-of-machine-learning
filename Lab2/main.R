@@ -432,6 +432,102 @@ abline(a = 0, b = 1, lwd = 3, lty = 2, col = 1)
 cat("_____________Random Forest_____________\n")
 rf <- randomForest(
   WESBROOK ~ ., # wszystkie zmienne
-    data = wesbrook_train,
+  data = wesbrook_train,
   ntrees = 10 # liczba drzew
 )
+
+rf_predictions <- predict(rf, wesbrook_test, type = "class")
+confusionMatrix(rf_predictions, wesbrook_test$WESBROOK)
+
+# Krzywa ROC
+rf_predictions_probabilities <- predict(rf, wesbrook_test, type = "prob")
+roc_pred <- prediction(
+  predictions = rf_predictions_probabilities[, "Y"],
+  labels = wesbrook_test$WESBROOK
+)
+
+roc_perf <- performance(roc_pred, measure = "tpr", x.measure = "fpr")
+auc_perf <- performance(roc_pred, measure = "auc")
+
+plot(roc_perf, main = paste("ROC CURVE, ",
+                            "AUC:", unlist(slot(auc_perf, "y.values"))), col = "red", lwd = 3)
+abline(a = 0, b = 1, lwd = 3, lty = 2, col = 1)
+
+# K - krotna walidacja krzyzowa
+kcv_rf <- train(
+  WESBROOK ~ .,
+  data = wesbrook_train,
+  metric = "Accuracy",
+  method = "rf",
+  trControl = trainControl(method = "cv", number = 10)
+)
+
+kcv_rf
+
+kcv_rf_predictions <- predict(kcv_rf, wesbrook_test, type = "raw")
+confusionMatrix(kcv_rf_predictions, wesbrook_test$WESBROOK)
+
+kcv_rf_predictions_prob <- predict(kcv_rf, wesbrook_test, type = "prob")
+
+roc_pred <- prediction(
+  predictions = kcv_dt_predictions_prob[, "Y"],
+  labels = wesbrook_test$WESBROOK
+)
+
+roc_perf <- performance(roc_pred, measure = "tpr", x.measure = "fpr")
+auc_perf <- performance(roc_pred, measure = "auc")
+
+plot(roc_perf, main = paste("ROC CURVE, ",
+                            "AUC:", unlist(slot(auc_perf, "y.values"))), col = "red", lwd = 3)
+abline(a = 0, b = 1, lwd = 3, lty = 2, col = 1)
+
+# Losowa walidacja krzyzowa
+rcv_rf <- train(
+  WESBROOK ~ .,
+  data = wesbrook_train,
+  metric = "Accuracy",
+  method = "rf",
+  trControl = trainControl(method = "LGOCV", p = .2, number = 100)
+)
+
+rcv_rf
+
+rcv_rf_predictions <- predict(rcv_rf, wesbrook_test, type = "raw")
+confusionMatrix(rcv_dt_predictions, wesbrook_test$WESBROOK)
+
+rcv_rf_predictions_probabilities <- predict(rcv_rf, wesbrook_test, type = "prob")
+
+roc_pred <- prediction(
+  predictions = rcv_rf_predictions_probabilities[, "Y"],
+  labels = wesbrook_test$WESBROOK
+)
+
+roc_perf <- performance(roc_pred, measure = "tpr", x.measure = "fpr")
+auc_perf <- performance(roc_pred, measure = "auc")
+
+plot(roc_perf, main = paste("ROC CURVE, ",
+                            "AUC:", unlist(slot(auc_perf, "y.values"))), col = "red", lwd = 3)
+abline(a = 0, b = 1, lwd = 3, lty = 2, col = 1)
+
+# Przy samodzielnych eksperymentach z parametrem ntrees wynika, że nie ma on wielkiego wpływu na dokładność. Algorytm random forest przy parametrze ntrees = 10 uzyskał dokładnośc na poziomie 96 %. Praktycznie nie myli się przy próbkach osób, które dały donacje w macierzy pomyłek. Większość przypadków pomyłek to predykcja tak, dla osób, które nie dały donacji większej niż 1000, są to 22 przypadki wśród 354 negatywnych, co nie byłoby ogromnną stratą czasu w przypadku zachęcenia tych osób. K-krotna walidacja oraz losowa walidacja uzyskały również dokładności na poziomie 96 % i podobne pomyłki jak model, z którym eksperymentowano własnoręcznie. Wszystkie modele uzyskały bardzo wysokie pole pod wykresem ROC = ok. 0.98 - 0.99 jest to bardzo dobry wynik.
+
+# XGBoost
+xgb <- train(
+  WESBROOK ~ ., # wszystkie zmienne
+  data = wesbrook_train,
+  metric = "Accuracy",
+  method = "xgbTree",
+  trControl = trainControl(method = "none"),
+  tuneGrid = expand.grid(
+    nrounds = 100,
+    max_depth = 6,
+    eta = 0.3,
+    gamma = 0.01,
+    colsample_bytree = 1,
+    min_child_weight = 1,
+    subsample = 1
+  )
+)
+
+xgb_predictions <- predict(xgb, wesbrook_test, type = "raw")
+confusionMatrix(xgb_predictions, wesbrook_test$WESBROOK)
