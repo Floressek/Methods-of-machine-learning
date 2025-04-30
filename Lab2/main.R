@@ -303,26 +303,26 @@ abline(a = 0, b = 1, lwd = 3, lty = 2, col = 1)
 
 # Drzewa decyzyjne
 cat("_____________Drzewa decyzyjne_____________\n")
-dt <- rpart(
-  WESBROOK ~ ., # wszystkie zmienne
-  data = wesbrook_train,
-  method = "class",
-  cp = 0.00002 # parametr cp to minimalny wzrost jakości podziału, aby utworzyć nowy węzeł czyli jeśli nie ma poprawy to nie dzielimy dalej
-)
+# dt <- rpart(
+#   WESBROOK ~ ., # wszystkie zmienne
+#   data = wesbrook_train,
+#   method = "class",
+#   cp = 0.00002 # parametr cp to minimalny wzrost jakości podziału, aby utworzyć nowy węzeł czyli jeśli nie ma poprawy to nie dzielimy dalej
+# )
+#
+# rpart.plot(dt)
+#
+# dt_predictions <- predict(dt, wesbrook_test, type = "class")
+# confusionMatrix(dt_predictions, wesbrook_test$WESBROOK)
 
-rpart.plot(dt)
-
-dt_predictions <- predict(dt, wesbrook_test, type = "class")
-confusionMatrix(dt_predictions, wesbrook_test$WESBROOK)
-
-
+# Testujemy różne wartości cp, aby znaleźć najlepszą wartość, uzywamy 50 jako warotsci kontrolnej czyli 50 podziałów
 dt_grid <- train(
   WESBROOK ~ .,
   data = wesbrook_train,
   method = "rpart",
   metric = "Accuracy",
   trControl = trainControl(method = "cv", number = 100),
-  tuneGrid = data.frame(cp = seq(0.00001, 0.001, length.out = 50))
+  tuneGrid = data.frame(cp = seq(0.00001, 0.001, length.out = 50)),
 )
 
 # Wyświetl najlepszą wartość cp
@@ -333,3 +333,78 @@ confusionMatrix(dt_predictions, wesbrook_test$WESBROOK)
 
 best_tree <- dt_grid$finalModel
 rpart.plot(best_tree)
+
+# Krzywa ROC
+dt_predictions_prob <- predict(dt_grid, wesbrook_test, type = "prob")
+roc_pred <- prediction(
+  predictions = dt_predictions_prob[, "Y"],
+  labels = wesbrook_test$WESBROOK
+)
+
+roc_pref <- performance(roc_pred, measure = "tpr", x.measure = "fpr")
+auc_pref <- performance(roc_pred, measure = "auc") # auc to pole pod krzywą
+
+plot(roc_pref, main = paste(
+  "ROC Curve,
+  AUC =", unlist(slot(auc_pref, "y.values"))),
+     col = "blue", lwd = 3
+)
+abline(a = 0, b = 1, lwd = 3, lty = 2, col = 1)
+
+# K krotna walidacja krzyzowa
+kcv_dt <- train(
+  WESBROOK ~ ., # wszystkie zmienne
+  data = wesbrook_train,
+  method = "rpart",
+  metric = "Accuracy",
+  trControl = trainControl(method = "cv", number = 5),
+  tuneGrid = data.frame(cp = seq(0.00001, 0.001, length.out = 50))
+)
+
+kcv_dt
+
+kcv_dt_predictions <- predict(kcv_dt, wesbrook_test, type = "raw")
+confusionMatrix(kcv_dt_predictions, wesbrook_test$WESBROOK)
+
+kcv_dt_predictions_prob <- predict(kcv_dt, wesbrook_test, type = "prob")
+
+roc_pred <- prediction(
+  predictions = kcv_dt_predictions_prob[, "Y"],
+  labels = wesbrook_test$WESBROOK
+)
+
+roc_perf <- performance(roc_pred, measure = "tpr", x.measure = "fpr")
+auc_perf <- performance(roc_pred, measure = "auc") # auc to pole pod krzywą
+
+plot(roc_perf, main = paste("ROC CURVE, ",
+                            "AUC:", unlist(slot(auc_perf, "y.values"))), col = "red", lwd = 3)
+abline(a = 0, b = 1, lwd = 3, lty = 2, col = 1)
+
+# Losowa walidacja krzyzowa
+rcv_dt <- train(
+  WESBROOK ~ ., # wszystkie zmienne
+  data = wesbrook_train,
+  method = "rpart",
+  metric = "Accuracy",
+  trControl = trainControl(method = "LGOCV", p = .2, number = 10),
+  tuneGrid = data.frame(cp = seq(0.00001, 0.001, length.out = 50))
+)
+
+rcv_dt
+
+rcv_dt_predictions <- predict(rcv_dt, wesbrook_test, type = "raw")
+confusionMatrix(rcv_dt_predictions, wesbrook_test$WESBROOK)
+
+rcv_dt_predictions_prob <- predict(rcv_dt, wesbrook_test, type = "prob")
+
+roc_pred <- prediction(
+  predictions = rcv_dt_predictions_prob[, "Y"],
+  labels = wesbrook_test$WESBROOK
+)
+
+roc_perf <- performance(roc_pred, measure = "tpr", x.measure = "fpr")
+auc_perf <- performance(roc_pred, measure = "auc")
+
+plot(roc_perf, main = paste("ROC CURVE, ",
+                            "AUC:", unlist(slot(auc_perf, "y.values"))), col = "red", lwd = 3)
+abline(a = 0, b = 1, lwd = 3, lty = 2, col = 1)
