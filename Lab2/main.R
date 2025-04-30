@@ -408,3 +408,30 @@ auc_perf <- performance(roc_pred, measure = "auc")
 plot(roc_perf, main = paste("ROC CURVE, ",
                             "AUC:", unlist(slot(auc_perf, "y.values"))), col = "red", lwd = 3)
 abline(a = 0, b = 1, lwd = 3, lty = 2, col = 1)
+
+# Podczas eksperymentów z parametrem cp zaobserwowano, że dla wartości większych niż cp > 0.0001, algorytm ogranicza się do użycia tylko jednej zmiennej decyzyjnej — TOTLGIVE, reprezentującej łączną kwotę przekazanych darowizn. Dopiero przy zmniejszeniu wartości cp, drzewo zaczyna rozgałęziać się głębiej i uwzględniać także inne cechy, takie jak AVE_INC, co pozwala lepiej odwzorować złożoność danych.
+#
+# Aby dobrać optymalny parametr cp, przeprowadzono siatkę poszukiwań (ang. grid search) w zakresie 0.00001–0.001 z 50 podziałami oraz zastosowano 100-krotną walidację krzyżową. Uzyskany w ten sposób model osiągnął wysoką dokładność na poziomie 96.1%, a najlepszy znaleziony parametr to cp ≈ 0.00098.
+#
+# Dodatkowo przeprowadzono dwa typy walidacji krzyżowej:
+# + K-krotną walidację krzyżową (5-fold)
+# + Losową walidację krzyżową (LGOCV) z podziałem 80/20 powtarzaną 10 razy
+#
+# Obie metody niezależnie wybrały tę samą optymalną wartość cp = 0.001. Wszystkie trzy modele (bazowy, k-krotny i losowy) osiągnęły identyczne wyniki:
+#
+# Accuracy: 0.9606
+# Sensitivity (Recall): 0.9789
+# Specificity: 0.9435
+# Balanced Accuracy: 0.9612
+# Kappa: 0.9213
+# AUC (ROC): ≈ 0.96
+#
+# To oznacza, że klasyfikator drzewa decyzyjnego jest nie tylko precyzyjny, ale również stabilny, niezależnie od metody walidacji. Krzywa ROC wykazuje bardzo dobrą separację klas, a AUC potwierdza wysoką jakość klasyfikacji.
+
+# Random Forest
+cat("_____________Random Forest_____________\n")
+rf <- randomForest(
+  WESBROOK ~ ., # wszystkie zmienne
+    data = wesbrook_train,
+  ntrees = 10 # liczba drzew
+)
