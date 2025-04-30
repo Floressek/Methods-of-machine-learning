@@ -101,7 +101,7 @@ wesbrook_features_numeric <- wesbrook_features %>%
 wesbrook_features <- cbind(wesbrook_features_numeric, as.data.frame(dummy_matrix))
 
 # Zeby zapewnic deterministyczność wyników, ustawiamy ziarno
-set.seed(4321) #FIXME: test different seeds for data splitting
+set.seed(1234) #FIXME: test different seeds for data splitting
 # Ustalamy proporcje podziału
 sample_index <- sample(nrow(wesbrook_features), round(nrow(wesbrook_features) * 0.75), replace = FALSE)
 
@@ -144,6 +144,7 @@ table(wesbrook_test$WESBROOK)
 # Budowa modeli
 
 # K-najbliższych sąsiadów, wstepnie dajemy k=5, pozniej sprawdzimy dla pozostalych
+cat("_____________K-najbliższych sąsiadów_____________\n")
 wesbrook_knn_predictions <-
   knn(
     train = wesbrook_features_train,
@@ -187,3 +188,115 @@ confusionMatrix(rcv_knn_predictions, wesbrook_test$WESBROOK)
 
 # Klasyfikator k-najbliższych sąsiadów, dla którego metoda k-krotnej walidacji krzyżowej dobrała parametr
 # k=7, a metoda losowej walidacji krzyżowej także wybrała k=7. Osiągamy w obydwu przypadkach zbliżoną skuteczność — odpowiednio 71.43% i 72.1%. To wskazuje na stabilność modelu niezależnie od metody walidacji. W macierzy pomyłek widać, że większy problem stanowią błędne klasyfikacje próbek pozytywnych, co w kontekście zadania może prowadzić do utraty potencjalnych donacji. Nie wykonano analizy krzywej ROC z uwagi na ograniczenia techniczne lub formalne tego typu zadania klasyfikacyjnego.
+
+cat("_____________Naiwny Bayes_____________\n")
+# Naiwny klasyfikator Bayesa
+nb <- naiveBayes(
+  WESBROOK ~ ., # wszystkie zmienne
+  data = wesbrook_train,
+  laplace = 1 # dodajemy 1 do każdej zmiennej aby uniknąć zer w liczniku, wygladzenie laplace'a
+)
+
+nb_predictions <- predict(nb, wesbrook_test, type = "class")
+confusionMatrix(nb_predictions, wesbrook_test$WESBROOK)
+
+nb_predictions_prob <- predict(nb, wesbrook_test, type = "raw")
+
+# Obliczamy krzywą ROC na podstawie przewidywanych prawdopodobieństw, arg1: predykcja, arg2: etykiety
+roc_pred <- prediction(nb_predictions_prob[, "Y"],
+                       labels = wesbrook_test$WESBROOK
+)
+
+# measure = "tpr" oznacza true positive rate, a x.measure = "fpr" oznacza false positive rate
+roc_pref <- performance(roc_pred, measure = "tpr", x.measure = "fpr")
+auc_pref <- performance(roc_pred, measure = "auc") # auc to pole pod krzywą
+
+plot(roc_pref, main = paste(
+  "ROC Curve,
+  AUC =", unlist(slot(auc_pref, "y.values"))),
+     col = "blue", lwd = 3
+)
+
+# Linia symbolizujaca przypadkowe przewidywanie 50% prawdopodobieństwa
+abline(a = 0, b = 1, lwd = 3, lty = 2, col = 1)
+
+# K-krotna walidacja krzyzowa
+kcv_nb <- train(
+  WESBROOK ~ ., # wszystkie zmienne
+  data = wesbrook_train,
+  metric = "Accuracy",
+  method = "naive_bayes",
+  tuneGrid = data.frame(
+    usekernel = FALSE, # FALSE = Gaussian, TRUE = kernel density
+    laplace = 1,
+    adjust = 1
+  ),
+  trControl = trainControl(method = "cv", number = 5, verboseIter = TRUE),
+)
+
+kcv_nb
+
+kcv_nb_predictions <- predict(
+  kcv_nb, wesbrook_test, type = "raw")
+confusionMatrix(kcv_nb_predictions,
+                wesbrook_test$WESBROOK)
+
+# Ten parametr jest potrzebny do obliczenia krzywej ROC, type prob daje nam prawdopodobieństwa
+kcv_nb_predictions_prob <- predict(
+  kcv_nb, wesbrook_test, type = "prob")
+
+roc_pred <- prediction(
+  predictions = kcv_nb_predictions_prob[, "Y"], # prawdopodobieństwa dla klasy Y
+  labels = wesbrook_test$WESBROOK
+)
+
+roc_pref <- performance(roc_pred, measure = "tpr", x.measure = "fpr")
+auc_pref <- performance(roc_pred, measure = "auc") # auc to pole pod krzywą
+
+plot(roc_pref, main = paste(
+  "ROC Curve,
+  AUC =", unlist(slot(auc_pref, "y.values"))),
+     col = "blue", lwd = 3
+)
+abline(a = 0, b = 1, lwd = 3, lty = 2, col = 1)
+
+# Losowa walidacja krzyzowa
+rcv_nb <- train(
+  WESBROOK ~ ., # wszystkie zmienne
+  data = wesbrook_train,
+  metric = "Accuracy",
+  method = "naive_bayes",
+  tuneGrid = data.frame(
+    usekernel = TRUE, # FALSE = Gaussian, TRUE = kernel density
+    laplace = 1,
+    adjust = 1
+  ),
+  trControl = trainControl(method = "LGOCV", p = .2, number = 10, verboseIter = TRUE),
+)
+
+rcv_nb
+
+rcv_nb_predictions <- predict(
+  rcv_nb, wesbrook_test, type = "raw")
+confusionMatrix(rcv_nb_predictions,
+                wesbrook_test$WESBROOK)
+
+rcv_nb_predictions_prob <- predict(
+  rcv_nb, wesbrook_test, type = "prob")
+
+roc_pred <- prediction(
+  predictions = rcv_nb_predictions_prob[, "Y"],
+  labels = wesbrook_test$WESBROOK
+)
+
+roc_pref <- performance(roc_pred, measure = "tpr", x.measure = "fpr")
+auc_pref <- performance(roc_pred, measure = "auc") # auc to pole pod krzywą
+
+plot(roc_pref, main = paste(
+  "ROC Curve,
+  AUC =", unlist(slot(auc_pref, "y.values"))),
+     col = "blue", lwd = 3
+)
+abline(a = 0, b = 1, lwd = 3, lty = 2, col = 1)
+
+# Nie znaleziono klasyfikatora, który miałby dokładność lepszą niż 50 %, chyba ze zmienilibysmy usekernel = TRUE, # FALSE = Gaussian, TRUE = kernel density na TRUE wtedy dla rozkladu gestosci osiagamy wynik 55% i mamy znacznie wieksza czulosc na negatywy,  oznacza to że ten klasyfikator nie jest wogóle lepszy od predykcji losowej. Z macierzy pomyłek można zauważyć, że prawie dla wszystkich próbek klasyfikator predykuje klasę "Y", czyli, że jest to osoba która mogłaby dać donacje. Klasyfikator jest dla nas bezużyteczny, według niego powinniśmy wysłać prawie do każdego zachęte odnośnie donacji, co byłoby stratą czasu. Wyjatkiem jest ten dla kernel TRUE ktory wykrywa poprawnie wszystkie negatywy ale ledwo ktore pozytywy wykrywa.
