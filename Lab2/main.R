@@ -300,3 +300,36 @@ plot(roc_pref, main = paste(
 abline(a = 0, b = 1, lwd = 3, lty = 2, col = 1)
 
 # Nie znaleziono klasyfikatora, który miałby dokładność lepszą niż 50 %, chyba ze zmienilibysmy usekernel = TRUE, # FALSE = Gaussian, TRUE = kernel density na TRUE wtedy dla rozkladu gestosci osiagamy wynik 55% i mamy znacznie wieksza czulosc na negatywy,  oznacza to że ten klasyfikator nie jest wogóle lepszy od predykcji losowej. Z macierzy pomyłek można zauważyć, że prawie dla wszystkich próbek klasyfikator predykuje klasę "Y", czyli, że jest to osoba która mogłaby dać donacje. Klasyfikator jest dla nas bezużyteczny, według niego powinniśmy wysłać prawie do każdego zachęte odnośnie donacji, co byłoby stratą czasu. Wyjatkiem jest ten dla kernel TRUE ktory wykrywa poprawnie wszystkie negatywy ale ledwo ktore pozytywy wykrywa.
+
+# Drzewa decyzyjne
+cat("_____________Drzewa decyzyjne_____________\n")
+dt <- rpart(
+  WESBROOK ~ ., # wszystkie zmienne
+  data = wesbrook_train,
+  method = "class",
+  cp = 0.00002 # parametr cp to minimalny wzrost jakości podziału, aby utworzyć nowy węzeł czyli jeśli nie ma poprawy to nie dzielimy dalej
+)
+
+rpart.plot(dt)
+
+dt_predictions <- predict(dt, wesbrook_test, type = "class")
+confusionMatrix(dt_predictions, wesbrook_test$WESBROOK)
+
+
+dt_grid <- train(
+  WESBROOK ~ .,
+  data = wesbrook_train,
+  method = "rpart",
+  metric = "Accuracy",
+  trControl = trainControl(method = "cv", number = 100),
+  tuneGrid = data.frame(cp = seq(0.00001, 0.001, length.out = 50))
+)
+
+# Wyświetl najlepszą wartość cp
+print(dt_grid$bestTune)
+
+dt_predictions <- predict(dt_grid, wesbrook_test)
+confusionMatrix(dt_predictions, wesbrook_test$WESBROOK)
+
+best_tree <- dt_grid$finalModel
+rpart.plot(best_tree)
