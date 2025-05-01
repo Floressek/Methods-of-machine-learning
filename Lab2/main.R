@@ -421,7 +421,7 @@ cat("_____________Random Forest_____________\n")
 rf <- randomForest(
   WESBROOK ~ ., # wszystkie zmienne
   data = wesbrook_train,
-  ntrees = 10 # liczba drzew
+  ntrees = 100 # liczba drzew
 )
 
 rf_predictions <- predict(rf, wesbrook_test, type = "class")
@@ -458,7 +458,7 @@ confusionMatrix(kcv_rf_predictions, wesbrook_test$WESBROOK)
 kcv_rf_predictions_prob <- predict(kcv_rf, wesbrook_test, type = "prob")
 
 roc_pred <- prediction(
-  predictions = kcv_dt_predictions_prob[, "Y"],
+  predictions = kcv_rf_predictions_prob[, "Y"],
   labels = wesbrook_test$WESBROOK
 )
 
