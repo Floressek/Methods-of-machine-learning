@@ -203,21 +203,17 @@ confusionMatrix(nb_predictions, wesbrook_test$WESBROOK)
 nb_predictions_prob <- predict(nb, wesbrook_test, type = "raw")
 
 # Obliczamy krzywą ROC na podstawie przewidywanych prawdopodobieństw, arg1: predykcja, arg2: etykiety
-roc_pred <- prediction(nb_predictions_prob[, "Y"],
-                       labels = wesbrook_test$WESBROOK
+roc_pred <- prediction(
+  nb_predictions_prob[, "Y"],
+  labels = wesbrook_test$WESBROOK
 )
 
 # measure = "tpr" oznacza true positive rate, a x.measure = "fpr" oznacza false positive rate
-roc_pref <- performance(roc_pred, measure = "tpr", x.measure = "fpr")
-auc_pref <- performance(roc_pred, measure = "auc") # auc to pole pod krzywą
+roc_perf <- performance(roc_pred, measure = "tpr", x.measure = "fpr")
+auc_perf <- performance(roc_pred, measure = "auc") # auc to pole pod krzywą
 
-plot(roc_pref, main = paste(
-  "ROC Curve,
-  AUC =", unlist(slot(auc_pref, "y.values"))),
-     col = "blue", lwd = 3
-)
-
-# Linia symbolizujaca przypadkowe przewidywanie 50% prawdopodobieństwa
+plot(roc_perf, main = paste("ROC CURVE, ",
+                            "AUC:", unlist(slot(auc_perf, "y.values"))), col = "red", lwd = 3)
 abline(a = 0, b = 1, lwd = 3, lty = 2, col = 1)
 
 # K-krotna walidacja krzyzowa
@@ -303,19 +299,35 @@ abline(a = 0, b = 1, lwd = 3, lty = 2, col = 1)
 
 # Drzewa decyzyjne
 cat("_____________Drzewa decyzyjne_____________\n")
-# dt <- rpart(
-#   WESBROOK ~ ., # wszystkie zmienne
-#   data = wesbrook_train,
-#   method = "class",
-#   cp = 0.00002 # parametr cp to minimalny wzrost jakości podziału, aby utworzyć nowy węzeł czyli jeśli nie ma poprawy to nie dzielimy dalej
-# )
-#
-# rpart.plot(dt)
-#
-# dt_predictions <- predict(dt, wesbrook_test, type = "class")
-# confusionMatrix(dt_predictions, wesbrook_test$WESBROOK)
+dt <- rpart(
+  WESBROOK ~ ., # wszystkie zmienne
+  data = wesbrook_train,
+  method = "class",
+  cp = 0.00002 # parametr cp to minimalny wzrost jakości podziału, aby utworzyć nowy węzeł czyli jeśli nie ma poprawy to nie dzielimy dalej
+)
 
-# Testujemy różne wartości cp, aby znaleźć najlepszą wartość, uzywamy 50 jako warotsci kontrolnej czyli 50 podziałów
+rpart.plot(dt)
+
+dt_predictions <- predict(dt, wesbrook_test, type = "class")
+confusionMatrix(dt_predictions, wesbrook_test$WESBROOK)
+
+# Krzywa ROC
+dt_predictions_probabilities <- predict(dt, wesbrook_test, type = "prob")
+roc_pred <-
+  prediction(
+    predictions = dt_predictions_probabilities[, "Y"],
+    labels = wesbrook_test$WESBROOK
+  )
+
+roc_perf <- performance(roc_pred, measure = "tpr", x.measure = "fpr")
+auc_perf <- performance(roc_pred, measure = "auc")
+
+plot(roc_perf, main = paste("ROC CURVE, ",
+                            "AUC:", unlist(slot(auc_perf, "y.values"))), col = "red", lwd = 3)
+abline(a = 0, b = 1, lwd = 3, lty = 2, col = 1)
+
+
+# K-krotna walidacja krzyzowa
 dt_grid <- train(
   WESBROOK ~ .,
   data = wesbrook_train,
@@ -347,66 +359,42 @@ auc_pref <- performance(roc_pred, measure = "auc") # auc to pole pod krzywą
 plot(roc_pref, main = paste(
   "ROC Curve,
   AUC =", unlist(slot(auc_pref, "y.values"))),
-     col = "blue", lwd = 3
+     col = "green", lwd = 3
 )
 abline(a = 0, b = 1, lwd = 3, lty = 2, col = 1)
 
-# K krotna walidacja krzyzowa
-kcv_dt <- train(
-  WESBROOK ~ ., # wszystkie zmienne
-  data = wesbrook_train,
-  method = "rpart",
-  metric = "Accuracy",
-  trControl = trainControl(method = "cv", number = 5),
-  tuneGrid = data.frame(cp = seq(0.00001, 0.001, length.out = 50))
-)
-
-kcv_dt
-
-kcv_dt_predictions <- predict(kcv_dt, wesbrook_test, type = "raw")
-confusionMatrix(kcv_dt_predictions, wesbrook_test$WESBROOK)
-
-kcv_dt_predictions_prob <- predict(kcv_dt, wesbrook_test, type = "prob")
-
-roc_pred <- prediction(
-  predictions = kcv_dt_predictions_prob[, "Y"],
-  labels = wesbrook_test$WESBROOK
-)
-
-roc_perf <- performance(roc_pred, measure = "tpr", x.measure = "fpr")
-auc_perf <- performance(roc_pred, measure = "auc") # auc to pole pod krzywą
-
-plot(roc_perf, main = paste("ROC CURVE, ",
-                            "AUC:", unlist(slot(auc_perf, "y.values"))), col = "red", lwd = 3)
-abline(a = 0, b = 1, lwd = 3, lty = 2, col = 1)
-
-# Losowa walidacja krzyzowa
+# Losowa walidacja krzyżowa
 rcv_dt <- train(
-  WESBROOK ~ ., # wszystkie zmienne
+  WESBROOK ~ .,
   data = wesbrook_train,
-  method = "rpart",
   metric = "Accuracy",
-  trControl = trainControl(method = "LGOCV", p = .2, number = 10),
-  tuneGrid = data.frame(cp = seq(0.00001, 0.001, length.out = 50))
+  method = "rpart",
+  trControl = trainControl(method = "LGOCV", p = .2, number = 100)
 )
 
 rcv_dt
 
+# Wyświetl najlepszą wartość cp
+print(rcv_dt$bestTune)
+best_tree <- rcv_dt$finalModel
+rpart.plot(best_tree)
+
 rcv_dt_predictions <- predict(rcv_dt, wesbrook_test, type = "raw")
 confusionMatrix(rcv_dt_predictions, wesbrook_test$WESBROOK)
 
-rcv_dt_predictions_prob <- predict(rcv_dt, wesbrook_test, type = "prob")
+rcv_dt_predictions_probabilities <- predict(rcv_dt, wesbrook_test, type = "prob")
 
-roc_pred <- prediction(
-  predictions = rcv_dt_predictions_prob[, "Y"],
-  labels = wesbrook_test$WESBROOK
-)
+roc_pred <-
+  prediction(
+    predictions = rcv_dt_predictions_probabilities[, "Y"],
+    labels = wesbrook_test$WESBROOK
+  )
 
 roc_perf <- performance(roc_pred, measure = "tpr", x.measure = "fpr")
 auc_perf <- performance(roc_pred, measure = "auc")
 
 plot(roc_perf, main = paste("ROC CURVE, ",
-                            "AUC:", unlist(slot(auc_perf, "y.values"))), col = "red", lwd = 3)
+                            "AUC:", unlist(slot(auc_perf, "y.values"))), col = "orange", lwd = 3)
 abline(a = 0, b = 1, lwd = 3, lty = 2, col = 1)
 
 # Podczas eksperymentów z parametrem cp zaobserwowano, że dla wartości większych niż cp > 0.0001, algorytm ogranicza się do użycia tylko jednej zmiennej decyzyjnej — TOTLGIVE, reprezentującej łączną kwotę przekazanych darowizn. Dopiero przy zmniejszeniu wartości cp, drzewo zaczyna rozgałęziać się głębiej i uwzględniać także inne cechy, takie jak AVE_INC, co pozwala lepiej odwzorować złożoność danych.
@@ -511,7 +499,8 @@ abline(a = 0, b = 1, lwd = 3, lty = 2, col = 1)
 
 # Przy samodzielnych eksperymentach z parametrem ntrees wynika, że nie ma on wielkiego wpływu na dokładność. Algorytm random forest przy parametrze ntrees = 10 uzyskał dokładnośc na poziomie 96 %. Praktycznie nie myli się przy próbkach osób, które dały donacje w macierzy pomyłek. Większość przypadków pomyłek to predykcja tak, dla osób, które nie dały donacji większej niż 1000, są to 22 przypadki wśród 354 negatywnych, co nie byłoby ogromnną stratą czasu w przypadku zachęcenia tych osób. K-krotna walidacja oraz losowa walidacja uzyskały również dokładności na poziomie 96 % i podobne pomyłki jak model, z którym eksperymentowano własnoręcznie. Wszystkie modele uzyskały bardzo wysokie pole pod wykresem ROC = ok. 0.98 - 0.99 jest to bardzo dobry wynik.
 
-# XGBoost
+cat("_____________XGBoost_____________\n")
+# XGBoost dla przykladowych parametorow, pozniej bedzemy weryikowac to w walidacji krzyzowej
 xgb <- train(
   WESBROOK ~ ., # wszystkie zmienne
   data = wesbrook_train,
@@ -531,3 +520,254 @@ xgb <- train(
 
 xgb_predictions <- predict(xgb, wesbrook_test, type = "raw")
 confusionMatrix(xgb_predictions, wesbrook_test$WESBROOK)
+
+# Krzywa ROC
+xgb_predictions_prob <- predict(xgb, wesbrook_test, type = "prob")
+roc_pred <- prediction(
+  predictions = xgb_predictions_prob[, "Y"],
+  labels = wesbrook_test$WESBROOK
+)
+
+roc_pref <- performance(roc_pred, measure = "tpr", x.measure = "fpr")
+auc_pref <- performance(roc_pred, measure = "auc")
+
+plot(roc_perf, main = paste("ROC CURVE, ",
+                            "AUC:", unlist(slot(auc_perf, "y.values"))), col = "red", lwd = 3)
+abline(a = 0, b = 1, lwd = 3, lty = 2, col = 1)
+
+# K-krotna walidacja krzyzowa
+kcv_xgb <- train(
+  WESBROOK ~ ., # wszystkie zmienne
+  data = wesbrook_train,
+  metric = "Accuracy",
+  method = "xgbTree",
+  trControl = trainControl(method = "cv", number = 10),
+)
+
+kcv_xgb
+
+kcv_xgb_predictions <- predict(kcv_xgb, wesbrook_test, type = "raw")
+confusionMatrix(kcv_xgb_predictions, wesbrook_test$WESBROOK)
+
+kcv_xgb_predictions_probabilities <- predict(kcv_xgb, wesbrook_test, type = "prob")
+
+roc_pred <- prediction(
+  predictions = kcv_xgb_predictions_probabilities[, "Y"],
+  labels = wesbrook_test$WESBROOK
+)
+
+roc_perf <- performance(roc_pred, measure = "tpr", x.measure = "fpr")
+auc_perf <- performance(roc_pred, measure = "auc")
+
+plot(roc_perf, main = paste("ROC CURVE, ",
+                            "AUC:", unlist(slot(auc_perf, "y.values"))), col = "red", lwd = 3)
+abline(a = 0, b = 1, lwd = 3, lty = 2, col = 1)
+
+# Losowa walidacja krzyzowa
+rcv_xgb <- train(
+  WESBROOK ~ ., # wszystkie zmienne
+  data = wesbrook_train,
+  metric = "Accuracy",
+  method = "xgbTree",
+  trControl = trainControl(method = "LGOCV", p = .2, number = 10),
+)
+
+rcv_xgb
+
+rcv_xgb_predictions <- predict(rcv_xgb, wesbrook_test, type = "raw")
+confusionMatrix(rcv_xgb_predictions, wesbrook_test$WESBROOK)
+
+rcv_xgb_predictions_probabilities <- predict(rcv_xgb, wesbrook_test, type = "prob")
+
+roc_pred <-
+  prediction(
+    predictions = rcv_xgb_predictions_probabilities[, "Y"],
+    labels = wesbrook_test$WESBROOK
+  )
+
+roc_perf <- performance(roc_pred, measure = "tpr", x.measure = "fpr")
+auc_perf <- performance(roc_pred, measure = "auc")
+
+plot(roc_perf, main = paste("ROC CURVE, ",
+                            "AUC:", unlist(slot(auc_perf, "y.values"))), col = "red", lwd = 3)
+abline(a = 0, b = 1, lwd = 3, lty = 2, col = 1)
+
+# Własnoręcznie dostosowywany model uzyskał dokładnośc 96 %. Jego AUC wynosi 0.98. Model jest bardzo dobry. Podobnie do modelu decision tree myli się częściej predykując donację większą niż 1000, nie są to częste pomyłki, co również świadczy o tym, że model jest bardzo dobry. K-krotna walidacja krzyżowa wybrała parametry nrounds = 150, max_depth = 1, eta = 0.4, gamma = 0, colsample_bytree = 0.6, min_child_weight = 1 and subsample = 1. Dla tych parametrów uzyskujemy dokładnośc 96 % i AUC 0.986. Losowa walidacja krzyżowa wybrała nrounds = 50, max_depth = 1, eta = 0.3, gamma = 0, colsample_bytree = 0.8, min_child_weight = 1 and subsample = 1. Ten model również uzyskał dokładność 96 % oraz AUC 0.986. Obie walidacje wybrały inne zestawy parametrów ale równie dobre.
+
+
+cat("________________SVM_____________\n")
+
+# SVM
+svm <- svm(
+  WESBROOK ~ .,
+  data = wesbrook_train,
+  probability = TRUE
+)
+
+svm_predictions <- predict(svm, wesbrook_test, type = "class")
+confusionMatrix(svm_predictions, wesbrook_test$WESBROOK)
+
+svm_predictions <- predict(svm, wesbrook_test, decision.values = TRUE, probability = TRUE)
+svm_predictions_probabilities <- attr(svm_predictions, "probabilities")
+roc_pred <-
+  prediction(
+    predictions = svm_predictions_probabilities[, "Y"],
+    labels = wesbrook_test$WESBROOK
+  )
+
+roc_perf <- performance(roc_pred, measure = "tpr", x.measure = "fpr")
+auc_perf <- performance(roc_pred, measure = "auc")
+
+plot(roc_perf, main = paste("ROC CURVE, ",
+                            "AUC:", unlist(slot(auc_perf, "y.values"))), col = "red", lwd = 3)
+abline(a = 0, b = 1, lwd = 3, lty = 2, col = 1)
+
+
+# K-krotna walidacja krzyżowa
+kcv_svm <- train(
+  WESBROOK ~ .,
+  data = wesbrook_train,
+  metric = "Accuracy",
+  method = "svmLinear2",
+  trControl = trainControl(method = "cv", number = 10, classProbs = TRUE)
+)
+
+kcv_svm
+
+kcv_svm_predictions <- predict(kcv_svm, wesbrook_test, type = "raw")
+confusionMatrix(kcv_svm_predictions, wesbrook_test$WESBROOK)
+
+kcv_svm_predictions_probabilities <- predict(kcv_svm, wesbrook_test, type = "prob")
+
+roc_pred <-
+  prediction(
+    predictions = kcv_svm_predictions_probabilities[, "Y"],
+    labels = wesbrook_test$WESBROOK
+  )
+roc_perf <- performance(roc_pred, measure = "tpr", x.measure = "fpr")
+auc_perf <- performance(roc_pred, measure = "auc")
+
+plot(roc_perf, main = paste("ROC CURVE, ",
+                            "AUC:", unlist(slot(auc_perf, "y.values"))), col = "red", lwd = 3)
+abline(a = 0, b = 1, lwd = 3, lty = 2, col = 1)
+
+# Losowa walidacja krzyżowa
+rcv_svm <- train(
+  WESBROOK ~ .,
+  data = wesbrook_train,
+  metric = "Accuracy",
+  method = "svmLinear2",
+  trControl = trainControl(method = "LGOCV", p = .2, number = 10, classProbs = TRUE)
+)
+
+rcv_svm
+
+rcv_svm_predictions <- predict(rcv_svm, wesbrook_test, type = "raw")
+confusionMatrix(rcv_svm_predictions, wesbrook_test$WESBROOK)
+
+rcv_svm_predictions_probabilities <- predict(rcv_svm, wesbrook_test, type = "prob")
+
+roc_pred <-
+  prediction(
+    predictions = rcv_svm_predictions_probabilities[, "Y"],
+    labels = wesbrook_test$WESBROOK
+  )
+
+roc_perf <- performance(roc_pred, measure = "tpr", x.measure = "fpr")
+auc_perf <- performance(roc_pred, measure = "auc")
+
+plot(roc_perf, main = paste("ROC CURVE, ",
+                            "AUC:", unlist(slot(auc_perf, "y.values"))), col = "red", lwd = 3)
+abline(a = 0, b = 1, lwd = 3, lty = 2, col = 1)
+
+# Model SVM nadal dobrze, ale trochę gorzej od drzew decyzyjnych radzi sobie z predykcją wartości kolumny WESBROOK, samodzielnie robiony model uzyskał dokładnośc 86 % oraz myli się częściej predykując klasę "N" dla klasy "Y", co może skutkować potencjalną utratą donatorów. Model uzyskał AUC na poziomie 0.963 co jest dobrym wynikiem. Obie metody walidacji wybrały SVM z parametrem kary COST = 1. Oba modele uzyskały dokładnośc na poziomie 93-94 % co jest bardzo dobrym wynikiem, rozkład pomyłek między klasami jest równomierny. Oba modele mają podobne AUC na pozomie 0.98 co jest bardzo dobym wynikiem.
+
+# Wnioski finalne
+# Najlepszym wyborem byłyby modele XGBoost uzyskane w walidacjach krzyżowych miały one najwyższe pole pod wykresem ROC oraz bardzo wysoką dokładność. Bardzo rzadko myliły się one, ale kiedy już się myliły to częściej predykowały klasę "Y" dla klasy "N" - 22 przypadki, niż na odwrót - 3 przypadki. Prowadziłoby to do rzadszych utrat w potencjalnych donatorach. Równie dobre były modele RandomForest, który uzyskał niemal identyczne wyniki. Najgorsze wyniki uzyskal naiwny klasyfikator bayesa, miał on podobną dokładność do losowego predykatora - był bezużyteczny.
+
+
+# ** EXMPERIMENTAL **
+library(e1071)
+library(caret)
+library(ROCR)
+
+cat("________________SVM_____________\n")
+
+# =======================
+# KROK 1: przygotowanie danych
+# =======================
+
+# Usuń zmienne ze stałą wartością (nie nadają się do skalowania)
+nzv <- nearZeroVar(wesbrook_train, saveMetrics = TRUE)
+wesbrook_train <- wesbrook_train[, !nzv$zeroVar]
+wesbrook_test <- wesbrook_test[, colnames(wesbrook_train)]  # dopasuj kolumny
+
+# =======================
+# KROK 2: klasyczny model SVM
+# =======================
+
+svm_model <- svm(
+  WESBROOK ~ .,
+  data = wesbrook_train,
+  probability = TRUE,
+  scale = TRUE # upewnij się, że dane są skalowane
+)
+
+svm_predictions <- predict(svm_model, wesbrook_test, type = "class")
+confusionMatrix(svm_predictions, wesbrook_test$WESBROOK)
+
+# ROC
+svm_prob <- attr(predict(svm_model, wesbrook_test, probability = TRUE), "probabilities")
+roc_pred <- prediction(svm_prob[, "Y"], wesbrook_test$WESBROOK)
+roc_perf <- performance(roc_pred, "tpr", "fpr")
+auc_perf <- performance(roc_pred, "auc")
+plot(roc_perf, main = paste("ROC CURVE (SVM), AUC:", round(unlist(slot(auc_perf, "y.values")), 4)), col = "red", lwd = 3)
+abline(a = 0, b = 1, lty = 2)
+
+# =======================
+# KROK 3: k-krotna walidacja krzyżowa (10-fold)
+# =======================
+
+kcv_svm <- train(
+  WESBROOK ~ .,
+  data = wesbrook_train,
+  method = "svmLinear2",
+  metric = "Accuracy",
+  preProcess = c("center", "scale"),
+  trControl = trainControl(method = "cv", number = 10, classProbs = TRUE)
+)
+
+kcv_preds <- predict(kcv_svm, wesbrook_test)
+confusionMatrix(kcv_preds, wesbrook_test$WESBROOK)
+
+# ROC
+kcv_prob <- predict(kcv_svm, wesbrook_test, type = "prob")
+roc_pred <- prediction(kcv_prob[, "Y"], wesbrook_test$WESBROOK)
+roc_perf <- performance(roc_pred, "tpr", "fpr")
+auc_perf <- performance(roc_pred, "auc")
+plot(roc_perf, main = paste("ROC CURVE (KCV), AUC:", round(unlist(slot(auc_perf, "y.values")), 4)), col = "blue", lwd = 3)
+abline(a = 0, b = 1, lty = 2)
+
+# =======================
+# KROK 4: Losowa walidacja krzyżowa (LGOCV) — poprawiona
+# =======================
+
+rcv_svm <- train(
+  WESBROOK ~ .,
+  data = wesbrook_train,
+  method = "svmLinear2",
+  metric = "Accuracy",
+  preProcess = c("center", "scale"),
+  trControl = trainControl(method = "LGOCV", p = 0.3, number = 10, classProbs = TRUE)
+)
+
+rcv_preds <- predict(rcv_svm, wesbrook_test)
+confusionMatrix(rcv_preds, wesbrook_test$WESBROOK)
+
+# ROC
+rcv_prob <- predict(rcv_svm, wesbrook_test, type = "prob")
+roc_pred <- prediction(rcv_prob[, "Y"], wesbrook_test$WESBROOK)
+roc_perf <- performance(roc_pred, "tpr", "fpr")
+auc_perf <- performance(roc_pred, "auc")
+plot(roc_perf, main = paste("ROC CURVE (RCV), AUC:", round(unlist(slot(auc_perf, "y.values")), 4)), col = "darkgreen", lwd = 3)
+abline(a = 0, b = 1, lty = 2)
