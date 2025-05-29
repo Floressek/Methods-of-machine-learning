@@ -138,9 +138,9 @@ for (col in binary_yes_no_cols) {
   if (!all(unique_values %in% expected_values)) {
     # Sprawdzenie, czy kolumna zawiera tylko oczekiwane wartości
     warning(paste("Kolumna '", col, "' zawiera wartości inne niż 'No', 'Yes': ",
-                  paste(setdiff(unique_vals, expected_vals), collapse = ", ")))
+                  paste(setdiff(unique_values, expected_values), collapse = ", ")))
   }
-  data_clean[[col]] <-  factor(data_clean[[col]], levels = c("Yes", "No"))
+  data_clean[[col]] <- factor(data_clean[[col]], levels = c("Yes", "No"))
   cat("Przekonwertowano '", col, "' na faktor.\n")
 }
 
@@ -153,10 +153,10 @@ if ("Sex" %in% names(data_clean)) {
 
 # Kategorie wiekowe na faktor
 age_levels_ordered <- c("18-24", "25-29", "30-34", "35-39", "40-44", "45-49",
-                            "50-54", "55-59", "60-64", "65-69", "70-74", "75-79", "80 or older")
+                        "50-54", "55-59", "60-64", "65-69", "70-74", "75-79", "80 or older")
 if ("AgeCategory" %in% names(data_clean)) {
-    data_clean$AgeCategory <- factor(data_clean$AgeCategory, levels = age_levels_ordered, ordered = TRUE)
-    cat("Przekonwertowano 'AgeCategory' na faktor.\n")
+  data_clean$AgeCategory <- factor(data_clean$AgeCategory, levels = age_levels_ordered, ordered = TRUE)
+  cat("Przekonwertowano 'AgeCategory' na faktor.\n")
 }
 
 # Rasa na faktor
@@ -204,3 +204,80 @@ str(data_clean, list.len = ncol(data_clean))
 # ===========================
 # 3. EKSPLORACYJNA ANALIZA DANYCH
 # ===========================
+
+if (nrow(data_clean) > 0) {
+  # Rozklad zmiennej docelowej
+  target_plot <- ggplot(data_clean, aes(x = HeartDisease, fill = HeartDisease)) +
+    geom_bar(alpha = 0.8) +
+    geom_text(stat = 'count', aes(
+      label = paste0(
+        after_stat(count),
+        '\n',
+        scales::percent(
+          after_stat(count) / sum(after_stat(count)
+          )
+        )
+      )
+    ),
+              vjust = -0.5, color = "black", fontface = "bold") +
+    scale_fill_manual(values = c("No" = "#3FFEBA", "Yes" = "#FC05FB")) +
+    labs(title = "Rozklad zmiennej docelowej (Choroby serca)",
+         x = "Choroby serca",
+         y = "Liczba") +
+    theme(legend.position = "none")
+  print(target_plot)
+
+  # Statystyki opisowe cech numerycznych
+  if (length(numerical_features) > 0) {
+    cat("\n=== STATYSTYKI OPISOWE CECH NUMERYCZNYCH ===\n")
+    print(summary(data_clean[, numerical_features, drop = FALSE]))
+  }
+
+  # Mapa korelacji dla cech numerycznych
+  if (length(numerical_features) > 1 && nrow(data_clean[, numerical_features, drop = FALSE]) > 1) {
+    numerical_data_for_cor <- data_clean[, numerical_features, drop = FALSE]
+    numerical_data_for_cor <- na.omit(numerical_data_for_cor)
+
+    if (nrow(numerical_data_for_cor) > 1) {
+      correlation_matrix <- cor(numerical_data_for_cor, use = "complete.obs")
+      corrplot(correlation_matrix, method = "color", type = "upper", order = "hclust",
+               tl.cex = 0.8, tl.col = "black", addCoef.col = "black", number.cex = 0.7,
+               title = "Mapa korelacji cech numerycznych", mar = c(0, 0, 1, 0))
+    }
+  }
+
+  # Wykresy rozkladow dla cech numerycznych
+  if (length(numerical_features) > 0) {
+    plot_list_num <- list()
+    for (i in seq_along(numerical_features)) {
+      feature <- numerical_features[i]
+      p <- ggplot(data_clean, aes_string(x = feature, fill = "HeartDisease")) +
+        geom_density(alpha = 0.7) +
+        scale_fill_manual(values = c("No" = "#3FFEBA", "Yes" = "#FC05FB")) +
+        labs(title = paste("Rozklad", feature), x = feature, y = "Gestosc")
+      plot_list_num[[i]] <- p
+    }
+    if (length(plot_list_num) > 0) grid.arrange(grobs = plot_list_num, ncol = 2) # Wyswietlenie wykresów
+  }
+
+  # Analiza cech numerycznych
+  if (length(categorical_features) > 0) {
+    plot_list_num <- list()
+    for (i in seq_along(categorical_features)) {
+      features <- categorical_features[i]
+      p <- ggplot(data_clean, aes_string(x = feature, fill = "HeartDisease")) +
+        geom_bar(position = "dodge", alpha = 0.8) +
+        scale_fill_manual(values = c("No" = "#3FFEBA", "Yes" = "#FC05FB")) +
+        labs(title = paste("Rozklad", feature), x = feature, y = "Liczba") +
+        theme(axis.text.x = element_text(angle = 45, hjust = 1))
+      plot_list_cat[[i]] <- p
+    }
+    if (length(plot_list_cat) > 0) grid.arrange(grobs = plot_list_cat, ncol = min(2, length(plot_list_cat)))
+  }
+}
+
+# ===========================
+# 4. PRZYGOTOWANIE MODELI
+# ===========================
+
+
