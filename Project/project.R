@@ -174,10 +174,10 @@ if ("GenHealth" %in% names(data_clean)) {
 
 # Konwersja zmiennej docelowej HeartDisease na faktor
 if ("HeartDisease" %in% names(data_clean)) {
-  data_clean$HeartDisease <- factor(data_clean$HeartDisease, levels = c("Yes", "No"))
-  cat("Przekonwertowano 'HeartDisease' na faktor.\n")
-} else { # In case of data corruption or missing column
-  stop("Kolumna 'HeartDisease' nie została znaleziona w danych.")
+  data_clean$HeartDisease <- factor(data_clean$HeartDisease, levels = c("No", "Yes"))
+  cat("Przekonwertowano 'HeartDisease' (zmienna docelowa) na faktor.\n")
+} else {
+  stop("KRYTYCZNE: Zmienna docelowa 'HeartDisease' nie została znaleziona.")
 }
 
 # Finalna kontrola NA po konwersji danych na faktor
@@ -262,9 +262,9 @@ if (nrow(data_clean) > 0) {
 
   # Analiza cech numerycznych
   if (length(categorical_features) > 0) {
-    plot_list_num <- list()
+    plot_list_cat <- list()
     for (i in seq_along(categorical_features)) {
-      features <- categorical_features[i]
+      feature <- categorical_features[i]
       p <- ggplot(data_clean, aes_string(x = feature, fill = "HeartDisease")) +
         geom_bar(position = "dodge", alpha = 0.8) +
         scale_fill_manual(values = c("No" = "#3FFEBA", "Yes" = "#FC05FB")) +
@@ -279,5 +279,102 @@ if (nrow(data_clean) > 0) {
 # ===========================
 # 4. PRZYGOTOWANIE MODELI
 # ===========================
+if (nrow(data_clean) == 0) {
+  stop("Brak danych do przygotowania modeli.")
+}
 
+set.seed(42)
+# Stratyfikowany podział na zbiory treningowy i testowy
+cat("Podział oczyszczonych danych na zbiory treningowy i testowy (75/25)...\n")
+train_index <- createDataPartition(data_clean$HeartDisease, p = 0.75, list = FALSE)
+initial_train_data <- data_clean[train_index,]
+test_data <- data_clean[-train_index,]
 
+cat("Rozmiar początkowego zbioru treningowego:", nrow(initial_train_data), "\n")
+cat("Rozkład klas w początkowym zbiorze treningowym:\n")
+print(table(initial_train_data$HeartDisease))
+cat("Rozmiar zbioru testowego:", nrow(test_data), "\n")
+
+# ===========================
+# ZASTOSOWANIE SMOTE ZAMIAST UNDERSAMPLING
+# ===========================
+cat("\n=== ZASTOSOWANIE SMOTE DO BALANSOWANIA KLAS ===\n")
+
+set.seed(123)
+cat("Stosowanie ROSE/SMOTE do balansowania klas...\n")
+cat("Przed balansowaniem - rozkład klas:\n")
+print(table(initial_train_data$HeartDisease))
+
+# Dokumenatcja SMOTE wymaga nazw kolumn bez znaków specjalnych
+problematic_cols <- grep("[-\\+\\*\\/\\(\\)\\s]", names(initial_train_data))
+if (length(problematic_cols) > 0) {
+  cat("Znaleziono problematyczne nazwy kolumn, naprawianie...\n")
+  names(initial_train_data) <- make.names(names(initial_train_data), unique = TRUE)
+}
+
+tryCatch({
+  train_smote <- ROSE(HeartDisease ~ .,
+                      data = initial_train_data,
+                      seed = 123,
+                      N = nrow(initial_train_data))$data
+}, error = function(e) {
+  cat("Błąd z ROSE, próba alternatywnego podejścia...\n")
+
+  # Alternatywne podejście - ręczne oversampling
+  minority_class <- initial_train_data[initial_train_data$HeartDisease == "Yes",]
+  majority_class <- initial_train_data[initial_train_data$HeartDisease == "No",]
+
+  # Nadprobkowanie klasy mniejszosciowej
+  n_minority <- nrow(minority_class)
+  n_majority <- nrow(majority_class)
+
+  target_size <- round(n_majority * 0.6)  # 60% rozmiaru klasy większościowej
+  minority_target <- round(target_size * 0.5)  # 50% rozmiaru klasy większościowej
+  majority_target <- target_size - minority_target
+
+  set.seed(123)
+  # Oversampling klasy mniejszosciowej - replace mamy na TRUE bo chcemy powtórzyć te same obserwacje
+  minority_indicies <- sample(1:n_minority, minority_target, replace = TRUE)
+  minority_oversampled <- minority_class[minority_indicies,]
+
+  # Undersampling klasy większościowej - replace mamy na FALSE bo chcemy tylko losowo wybrać obserwacje tylko raz
+  majority_indicies <- sample(1:n_majority, majority_target, replace = FALSE)
+  majority_undersampled <- majority_class[majority_indicies,]
+
+  # Globalne przypisanie przetworzonych danych
+  train_smote <<- rbind(minority_oversampled, majority_undersampled)
+  cat("Ręczne oversampling i undersampling zakończone.\n")
+})
+
+cat("Po balansowaniu SMOTEM/ROSE - rozkład klas:\n")
+print(table(train_smote$HeartDisease))
+
+# Wykres rozklady zmiennej docelowej po SMOTE
+smote_target_plot <- ggplot(train_smote, aes(x = HeartDisease, fill = HeartDisease)) +
+  geom_bar(alpha = 0.8) +
+  geom_text(stat = 'count', aes(label = paste0(after_stat(count), '\n',
+                                               scales::percent(after_stat(count) / sum(after_stat(count))))),
+            vjust = -0.5, color = "black", fontface = "bold") +
+  scale_fill_manual(values = c("No" = "#3FFEBA", "Yes" = "#FC05FB")) +
+  labs(title = "Rozklad zmiennej docelowej po SMOTE",
+       x = "Choroby serca", y = "Liczba") +
+  theme(legend.position = "none")
+print(smote_target_plot)
+
+# Przygotowanie macierzy cech i wektorow
+train_data <- train_smote
+X_train <- train_data[, !names(train_data) %in% "HeartDisease"]
+X_test <- train_data[, !names(test_data) %in% "HeartDisease"]
+
+y_train_factor <- train_data$HeartDisease
+y_test_factor <- test_data$HeartDisease
+
+y_train_numeric <- ifelse(y_train_factor == "Yes", 1, 0)
+y_test_numeric <- ifelse(y_test_factor == "Yes", 1, 0)
+
+cat("\nWymiary X_train (po SMOTE):", dim(X_train), "\n")
+cat("Wymiary X_test:", dim(X_test), "\n")
+
+# ===========================
+# 5. TRENOWANIE I EWALUACJA MODELI
+# ===========================
