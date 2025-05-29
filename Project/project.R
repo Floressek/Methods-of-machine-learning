@@ -87,7 +87,7 @@ for (col_name in names(data_clean)) {
 
 # Konwersja wartości nieskończonych na NA
 cat("\nKrok 2: Konwersja wartości nieskończonych na NA...\n")
-if (length(potential_numerical_col) > 0) {
+if (length(potential_numerical_cols) > 0) {
   for (num_col in potential_numerical_cols) {
     if (is.numeric(data_clean[[num_col]])) {
       inf_before <- sum(is.infinite(data_clean[[num_col]]))
@@ -150,3 +150,57 @@ if ("Sex" %in% names(data_clean)) {
   data_clean$Sex <- factor(data_clean$Sex, levels = c("Female", "Male"))
   cat("Przekonwertowano 'Sex' na faktor.\n")
 }
+
+# Kategorie wiekowe na faktor
+age_levels_ordered <- c("18-24", "25-29", "30-34", "35-39", "40-44", "45-49",
+                            "50-54", "55-59", "60-64", "65-69", "70-74", "75-79", "80 or older")
+if ("AgeCategory" %in% names(data_clean)) {
+    data_clean$AgeCategory <- factor(data_clean$AgeCategory, levels = age_levels_ordered, ordered = TRUE)
+    cat("Przekonwertowano 'AgeCategory' na faktor.\n")
+}
+
+# Rasa na faktor
+if ("Race" %in% names(data_clean)) {
+  data_clean$Race <- factor(data_clean$Race)
+  cat("Przekonwertowano 'Race' na faktor.\n")
+}
+
+# Konwersja ogolnego stany zdrowia na faktor
+gen_health_levels_ordered <- c("Poor", "Fair", "Good", "Very good", "Excellent")
+if ("GenHealth" %in% names(data_clean)) {
+  data_clean$GenHealth <- factor(data_clean$GenHealth, levels = gen_health_levels_ordered, ordered = TRUE)
+  cat("Przekonwertowano 'GenHealth' na faktor.\n")
+}
+
+# Konwersja zmiennej docelowej HeartDisease na faktor
+if ("HeartDisease" %in% names(data_clean)) {
+  data_clean$HeartDisease <- factor(data_clean$HeartDisease, levels = c("Yes", "No"))
+  cat("Przekonwertowano 'HeartDisease' na faktor.\n")
+} else { # In case of data corruption or missing column
+  stop("Kolumna 'HeartDisease' nie została znaleziona w danych.")
+}
+
+# Finalna kontrola NA po konwersji danych na faktor
+na_after_factors <- sapply(data_clean, function(x) sum(is.na(x)))
+if (any(na_after_factors > na_counts_final[names(na_after_factors)])) {
+  cat("\nOstrzeżenie: Dodatkowe NA wprowadzone podczas konwersji faktorów.\n")
+  print("Liczba NA w kolumnach PO konwersji faktorów:")
+  print(na_after_factors[na_after_factors > 0])
+  original_rows_after_factors <- nrow(data_clean)
+  data_clean <- na.omit(data_clean)
+  cat("Zastosowano na.omit() ponownie. Usunięto", original_rows_after_factors - nrow(data_clean), "wierszy.\n")
+}
+
+# Weryfikacja końcowej struktury danych
+cat("\n--- KOŃCOWA KONTROLA STRUKTURY OCZYSZCZONYCH DANYCH ---\n")
+cat("Dostępne kolumny po oczyszczeniu:\n"); print(names(data_clean))
+cat("Końcowe cechy numeryczne:\n"); print(numerical_features)
+cat("Końcowe cechy kategoryczne (bez zmiennej docelowej):\n"); print(categorical_features)
+cat("Struktura data_clean:\n")
+summary(data_clean)
+glimpse(data_clean)
+str(data_clean, list.len = ncol(data_clean))
+
+# ===========================
+# 3. EKSPLORACYJNA ANALIZA DANYCH
+# ===========================
