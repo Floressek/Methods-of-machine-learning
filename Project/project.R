@@ -313,7 +313,7 @@ if (nrow(data_clean) > 0) {
     # Statystyki opisowe
     cat("\n=== KLUCZOWE STATYSTYKI ===\n")
     for (diabetic_cat in levels(data_clean$Diabetic)) {
-      subset_data <- data_clean[data_clean$Diabetic == diabetic_cat, ]
+      subset_data <- data_clean[data_clean$Diabetic == diabetic_cat,]
       heart_yes_count <- sum(subset_data$HeartDisease == "Yes")
       total_count <- nrow(subset_data)
       percentage <- round((heart_yes_count / total_count) * 100, 2)
@@ -404,8 +404,8 @@ tryCatch({
   cat("Błąd:", e$message, "\n")
 
   # Fallback - proste over/undersampling z balansem 50:50
-  minority_class <- initial_train_data[initial_train_data$HeartDisease == "Yes", ]
-  majority_class <- initial_train_data[initial_train_data$HeartDisease == "No", ]
+  minority_class <- initial_train_data[initial_train_data$HeartDisease == "Yes",]
+  majority_class <- initial_train_data[initial_train_data$HeartDisease == "No",]
 
   n_minority <- nrow(minority_class)
   n_majority <- nrow(majority_class)
@@ -417,17 +417,17 @@ tryCatch({
   # Oversampling klasy mniejszościowej
   set.seed(123)
   minority_indices <- sample(1:n_minority, target_minority, replace = TRUE)
-  minority_oversampled <- minority_class[minority_indices, ]
+  minority_oversampled <- minority_class[minority_indices,]
 
   # Undersampling klasy większościowej
   set.seed(456)
   majority_indices <- sample(1:n_majority, min(target_majority, n_majority), replace = FALSE)
-  majority_undersampled <- majority_class[majority_indices, ]
+  majority_undersampled <- majority_class[majority_indices,]
 
   # Łączenie i tasowanie
   train_smote <<- rbind(minority_oversampled, majority_undersampled)
   set.seed(789)
-  train_smote <<- train_smote[sample(nrow(train_smote)), ]
+  train_smote <<- train_smote[sample(nrow(train_smote)),]
 
   cat("Zastosowano alternatywne balansowanie klas.\n")
 })
@@ -454,7 +454,9 @@ X_test <- test_data[, !names(test_data) %in% "HeartDisease"]
 
 for (col in names(X_train)) {
   # Tylko jeśli w X_train to zwykły factor, a w X_test ordered
-  if (is.factor(X_train[[col]]) && !is.ordered(X_train[[col]]) && is.ordered(X_test[[col]])) {
+  if (is.factor(X_train[[col]]) &&
+    !is.ordered(X_train[[col]]) &&
+    is.ordered(X_test[[col]])) {
     X_test[[col]] <- factor(as.character(X_test[[col]]), levels = levels(X_train[[col]]))
   }
   # Na wszelki wypadek - zawsze wymuszamy te same poziomy
@@ -484,3 +486,100 @@ print(sapply(X_test, class))
 # ===========================
 # 5. TRENOWANIE I EWALUACJA MODELI
 # ===========================
+# Funkcja do ewaluacji modelu
+evaluate_model <- function(model, X_test_data, y_test_data_numeric, model_name_str) {
+  y_test_data_numeric <- as.numeric(y_test_data_numeric)
+
+  raw_predictions_numeric <- NULL
+  probabilities_output <- NULL
+
+  if (inherits(model, "glm")) {
+    probabilities_output <- predict(model, X_test_data, type = "response")
+    # Dodajemy progowanie dla regresji logistycznej
+    raw_predictions_numeric <- ifelse(probabilities_output > 0.5, 1, 0)
+  } else if (inherits(model, "randomForest")) {
+    predicted_class_factor <- predict(model, X_test_data, type = "response")
+    raw_predictions_numeric <- ifelse(predicted_class_factor == "Yes", 1, 0)
+    prob_matrix <- predict(model, X_test_data, type = "prob")
+    if ("Yes" %in% colnames(prob_matrix)) {
+      probabilities_output <- prob_matrix[, "Yes"]
+    } else {
+      probabilities_output <- prob_matrix[, 2]
+    }
+  } else if (inherits(model, "rpart")) {
+    predicted_class_factor <- predict(model, X_test_data, type = "class")
+    raw_predictions_numeric <- ifelse(predicted_class_factor == "Yes", 1, 0)
+    prob_matrix <- predict(model, X_test_data, type = "prob")
+    if ("Yes" %in% colnames(prob_matrix)) {
+      probabilities_output <- prob_matrix[, "Yes"]
+    } else {
+      probabilities_output <- prob_matrix[, 2]
+    }
+    # model gbm -> is a generalized boosted model FIXME try the plot.it = TRUE
+  } else if (inherits(model, "gbm")) {
+    best_iter <- tryCatch(gbm.perf(model, plot.it = FALSE, method = "OOB"),
+                          error = function(e) model$n.trees)
+    if (is.null(best_iter) ||
+      !is.numeric(best_iter) ||
+      best_iter < 1) {
+      best_iter <- model$n.trees
+    }
+    probabilities_output <- predict(model, X_test_data, n.trees = best_iter, type = "response")
+    raw_predictions_numeric <- ifelse(probabilities_output > 0.5, 1, 0)
+  } else if (inherits(model, "xgb.Booster")) {
+    if (is.data.frame(X_test_data)) {
+      # Konwersja zmiennych factor na zmienne numeryczne
+      X_test_numeric <- X_test_data
+      factor_cols <- sapply(X_test_numeric, is.factor)
+      X_test_numeric[factor_cols] <- lapply(X_test_numeric[factor_cols], as.numeric)
+      test_matrix <- as.matrix(X_test_numeric) # Konwersja do macierzy
+    } else {
+      test_matrix <- as.matrix(X_test_data)
+    }
+    probabilities_output <- predict(model, test_matrix)
+    raw_predictions_numeric <- ifelse(probabilities_output > 0.5, 1, 0)
+  } else {
+    warning(paste("Model", model_name_str, "nie jest obsługiwany w tej funkcji ewaluacji."))
+    raw_predictions_numeric <- rep(0, nrow(X_test_data))
+    probabilities_output <- rep(0.5, nrow(X_test_data))
+  }
+  # Kontrola jakości predykcji
+  if (is.null(probabilities_output) || length(probabilities_output) != nrow(X_test_data)) {
+    probabilities_output <- rep(0.5, nrow(X_test_data))
+  }
+  probabilities_output <- as.numeric(probabilities_output)
+
+  if (is.null(raw_predictions_numeric) || length(raw_predictions_numeric) != nrow(X_test_data)) {
+    raw_predictions_numeric <- rep(0, nrow(X_test_data))
+  }
+  if (!all(raw_predictions_numeric %in% c(0, 1))) {
+    raw_predictions_numeric <- ifelse(as.numeric(raw_predictions_numeric) > 0.5, 1, 0)
+  }
+
+  # Tworzenie wersji faktorowych dla macierzy konfuzji
+  predictions_factor_cm <- factor(raw_predictions_numeric, levels = c(0, 1), labels = c("No", "Yes"))
+  y_test_factor_cm <- factor(y_test_data_numeric, levels = c(0, 1), labels = c("No", "Yes"))
+
+  cm <- confusionMatrix(predictions_factor_cm, y_test_factor_cm, positive = "Yes")
+
+  roc_obj <- roc(response = y_test_factor_cm, predictor = probabilities_output,
+                 levels = c("No", "Yes"), direction = "<", quiet = TRUE)
+  auc_score <- auc(roc_obj)
+
+  results <- list(
+    model_name = model_name_str,
+    accuracy = cm$overall['Accuracy'],
+    sensitivity = cm$byClass['Sensitivity'],
+    specificity = cm$byClass['Specificity'],
+    precision = cm$byClass['Precision'],
+    f1 = cm$byClass['F1'],
+    auc = as.numeric(auc_score),
+    confusion_matrix = cm$table,
+    roc = roc_obj,
+    predictions = raw_predictions_numeric,
+    probabilities = probabilities_output
+  )
+  return(results)
+}
+
+# Trenowanie modeli z ważeniem klas (HYBRID RESAMPLING + CLASS WEIGHTING)
