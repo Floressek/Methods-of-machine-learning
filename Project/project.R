@@ -12,7 +12,11 @@ library(gridExtra)
 library(RColorBrewer)
 library(scales)
 library(knitr)
-library(ROSE)  # Dla SMOTE
+# Sprawdzenie i instalacja smotefamily jeśli potrzebne
+if (!require(smotefamily, quietly = TRUE)) {
+  install.packages("smotefamily")
+  library(smotefamily)
+}
 
 # Ustawienie tematu dla wykresów
 theme_set(theme_minimal())
@@ -36,7 +40,6 @@ cat("Wymiary danych:", nrow(data), "wierszy,", ncol(data), "kolumn\n")
 head(data)
 str(data)
 
-
 # Słownik danych (wnioskowany)
 cat("=== SŁOWNIK DANYCH ===\n")
 cat("1. HeartDisease: Choroby serca (Tak/Nie)\n")
@@ -50,7 +53,7 @@ cat("8. DiffWalking: Trudności z chodzeniem (Tak/Nie)\n")
 cat("9. Sex: Płeć (Kobieta/Mężczyzna)\n")
 cat("10. AgeCategory: Kategoria wiekowa\n")
 cat("11. Race: Rasa/pochodzenie\n")
-cat("12. Diabetic: Cukrzyca (Tak/Nie)\n")
+cat("12. Diabetic: Cukrzyca (4 kategorie)\n")
 cat("13. PhysicalActivity: Aktywność fizyczna (Tak/Nie)\n")
 cat("14. GenHealth: Ogólny stan zdrowia\n")
 cat("15. SleepTime: Czas snu (godziny)\n")
@@ -71,13 +74,13 @@ cat("\n=== WYKRYWANIE I OBSŁUGA PROBLEMATYCZNYCH WARTOŚCI ===\n")
 potential_numerical_cols <- c("BMI", "PhysicalHealth", "MentalHealth", "SleepTime")
 potential_numerical_cols <- intersect(potential_numerical_cols, names(data_clean))
 
-# Konwersja stringow NA na R NA czyli usunięcie spacji i konwersja na numeryczne
+# Konwersja stringów NA na R NA
 cat("Krok 1: Konwersja stringowych reprezentacji NA...\n")
 na_strings_to_check <- c("NA", "N/A", "na", "n/a", "", " ", "NULL", "Null", "null", "Missing", "?", ".", "Unknown", "Not Specified")
 for (col_name in names(data_clean)) {
   if (is.character(data_clean[[col_name]])) {
     na_before <- sum(is.na(data_clean[[col_name]]))
-    data_clean[[col_name]][trimws(data_clean[[col_name]]) %in% na_strings_to_check] <- NA # Konwersja stringów NA na R NA
+    data_clean[[col_name]][trimws(data_clean[[col_name]]) %in% na_strings_to_check] <- NA
     na_after <- sum(is.na(data_clean[[col_name]]))
     if (na_after > na_before) {
       cat("  Kolumna '", col_name, "': Przekonwertowano ", na_after - na_before, " stringowych NA.\n")
@@ -119,33 +122,49 @@ if (total_na_values_final > 0) {
 }
 cat("Dane po obsłudze NA:", nrow(data_clean), "wierszy\n")
 
+# Definiowanie cech numerycznych i kategorycznych
 numerical_features <- c("BMI", "PhysicalHealth", "MentalHealth", "SleepTime")
 numerical_features <- intersect(numerical_features, names(data_clean))
 
-# Utworzenie listy cech kategorycznych
 all_columns <- names(data_clean)
 categorical_features <- setdiff(all_columns, c(numerical_features, "HeartDisease"))
 
 cat("\n--- KONWERSJA KOLUMN NA ODPOWIEDNIE TYPY FAKTORÓW ---\n")
+
 # Konwersja zmiennych binarnych na faktory
 binary_yes_no_cols <- c("Smoking", "AlcoholDrinking", "Stroke", "DiffWalking",
-                        "Diabetic", "PhysicalActivity", "Asthma", "KidneyDisease", "SkinCancer")
+                        "PhysicalActivity", "Asthma", "KidneyDisease", "SkinCancer")
 binary_yes_no_cols <- intersect(binary_yes_no_cols, names(data_clean))
 
 for (col in binary_yes_no_cols) {
-  unique_values <- unique(data_clean[[col]])
-  expected_values <- c("No", "Yes")
-  if (!all(unique_values %in% expected_values)) {
-    # Sprawdzenie, czy kolumna zawiera tylko oczekiwane wartości
+  unique_vals <- unique(data_clean[[col]])
+  expected_vals <- c("No", "Yes")
+  if (!all(unique_vals %in% expected_vals)) {
     warning(paste("Kolumna '", col, "' zawiera wartości inne niż 'No', 'Yes': ",
-                  paste(setdiff(unique_values, expected_values), collapse = ", ")))
+                  paste(setdiff(unique_vals, expected_vals), collapse = ", ")))
   }
-  data_clean[[col]] <- factor(data_clean[[col]], levels = c("Yes", "No"))
+  data_clean[[col]] <- factor(data_clean[[col]], levels = c("No", "Yes"))
   cat("Przekonwertowano '", col, "' na faktor.\n")
 }
 
+# SPECJALNA OBSŁUGA DLA DIABETIC - ma 4 kategorie
+if ("Diabetic" %in% names(data_clean)) {
+  cat("\nSpecjalna obsługa kolumny 'Diabetic' z wieloma kategoriami...\n")
+  diabetic_unique <- unique(data_clean$Diabetic)
+  cat("Znalezione wartości w Diabetic:", paste(diabetic_unique, collapse = ", "), "\n")
 
-# Plec na faktor
+  # Zliczenie każdej kategorii
+  diabetic_counts <- table(data_clean$Diabetic)
+  print("Rozkład kategorii Diabetic:")
+  print(diabetic_counts)
+
+  # Konwersja na faktor z wszystkimi kategoriami
+  diabetic_levels <- c("No", "No, borderline diabetes", "Yes", "Yes (during pregnancy)")
+  data_clean$Diabetic <- factor(data_clean$Diabetic, levels = diabetic_levels)
+  cat("Przekonwertowano 'Diabetic' na faktor z", length(diabetic_levels), "poziomami.\n")
+}
+
+# Płeć na faktor
 if ("Sex" %in% names(data_clean)) {
   data_clean$Sex <- factor(data_clean$Sex, levels = c("Female", "Male"))
   cat("Przekonwertowano 'Sex' na faktor.\n")
@@ -165,7 +184,7 @@ if ("Race" %in% names(data_clean)) {
   cat("Przekonwertowano 'Race' na faktor.\n")
 }
 
-# Konwersja ogolnego stany zdrowia na faktor
+# Konwersja ogólnego stanu zdrowia na faktor
 gen_health_levels_ordered <- c("Poor", "Fair", "Good", "Very good", "Excellent")
 if ("GenHealth" %in% names(data_clean)) {
   data_clean$GenHealth <- factor(data_clean$GenHealth, levels = gen_health_levels_ordered, ordered = TRUE)
@@ -180,7 +199,7 @@ if ("HeartDisease" %in% names(data_clean)) {
   stop("KRYTYCZNE: Zmienna docelowa 'HeartDisease' nie została znaleziona.")
 }
 
-# Finalna kontrola NA po konwersji danych na faktor
+# Finalna kontrola NA po konwersji faktorów
 na_after_factors <- sapply(data_clean, function(x) sum(is.na(x)))
 if (any(na_after_factors > na_counts_final[names(na_after_factors)])) {
   cat("\nOstrzeżenie: Dodatkowe NA wprowadzone podczas konwersji faktorów.\n")
@@ -198,27 +217,17 @@ cat("Końcowe cechy numeryczne:\n"); print(numerical_features)
 cat("Końcowe cechy kategoryczne (bez zmiennej docelowej):\n"); print(categorical_features)
 cat("Struktura data_clean:\n")
 summary(data_clean)
-glimpse(data_clean)
-str(data_clean, list.len = ncol(data_clean))
 
 # ===========================
 # 3. EKSPLORACYJNA ANALIZA DANYCH
 # ===========================
 
 if (nrow(data_clean) > 0) {
-  # Rozklad zmiennej docelowej
+  # Rozkład zmiennej docelowej
   target_plot <- ggplot(data_clean, aes(x = HeartDisease, fill = HeartDisease)) +
     geom_bar(alpha = 0.8) +
-    geom_text(stat = 'count', aes(
-      label = paste0(
-        after_stat(count),
-        '\n',
-        scales::percent(
-          after_stat(count) / sum(after_stat(count)
-          )
-        )
-      )
-    ),
+    geom_text(stat = 'count', aes(label = paste0(after_stat(count), '\n',
+                                                 scales::percent(after_stat(count) / sum(after_stat(count))))),
               vjust = -0.5, color = "black", fontface = "bold") +
     scale_fill_manual(values = c("No" = "#3FFEBA", "Yes" = "#FC05FB")) +
     labs(title = "Rozklad zmiennej docelowej (Choroby serca)",
@@ -246,7 +255,7 @@ if (nrow(data_clean) > 0) {
     }
   }
 
-  # Wykresy rozkladow dla cech numerycznych
+  # Wykresy rozkładów dla cech numerycznych
   if (length(numerical_features) > 0) {
     plot_list_num <- list()
     for (i in seq_along(numerical_features)) {
@@ -257,10 +266,10 @@ if (nrow(data_clean) > 0) {
         labs(title = paste("Rozklad", feature), x = feature, y = "Gestosc")
       plot_list_num[[i]] <- p
     }
-    if (length(plot_list_num) > 0) grid.arrange(grobs = plot_list_num, ncol = 2) # Wyswietlenie wykresów
+    if (length(plot_list_num) > 0) grid.arrange(grobs = plot_list_num, ncol = 2)
   }
 
-  # Analiza cech numerycznych
+  # Analiza cech kategorycznych
   if (length(categorical_features) > 0) {
     plot_list_cat <- list()
     for (i in seq_along(categorical_features)) {
@@ -274,6 +283,47 @@ if (nrow(data_clean) > 0) {
     }
     if (length(plot_list_cat) > 0) grid.arrange(grobs = plot_list_cat, ncol = min(2, length(plot_list_cat)))
   }
+
+  # SPECJALNA ANALIZA DIABETIC vs HEART DISEASE
+  if ("Diabetic" %in% names(data_clean)) {
+    cat("\n=== ANALIZA DIABETIC vs HEART DISEASE ===\n")
+
+    # Tabela krzyżowa
+    diabetic_heart_table <- table(data_clean$Diabetic, data_clean$HeartDisease)
+    cat("Tabela krzyzowa Diabetic vs HeartDisease:\n")
+    print(diabetic_heart_table)
+
+    # Procenty w każdej kategorii cukrzycy
+    diabetic_heart_prop <- prop.table(diabetic_heart_table, margin = 1) * 100
+    cat("\nProcent chorob serca w kazdej kategorii cukrzycy:\n")
+    print(round(diabetic_heart_prop, 2))
+
+    # Wykres słupkowy - procenty
+    diabetic_plot_prop <- ggplot(data_clean, aes(x = Diabetic, fill = HeartDisease)) +
+      geom_bar(position = "fill", alpha = 0.8) +
+      scale_fill_manual(values = c("No" = "#3FFEBA", "Yes" = "#FC05FB")) +
+      scale_y_continuous(labels = scales::percent) +
+      labs(title = "Procent chorob serca wedlug statusu cukrzycy",
+           x = "Status cukrzycy",
+           y = "Procent",
+           fill = "Choroby serca") +
+      theme(axis.text.x = element_text(angle = 45, hjust = 1))
+    print(diabetic_plot_prop)
+
+    # Statystyki opisowe
+    cat("\n=== KLUCZOWE STATYSTYKI ===\n")
+    for (diabetic_cat in levels(data_clean$Diabetic)) {
+      subset_data <- data_clean[data_clean$Diabetic == diabetic_cat, ]
+      heart_yes_count <- sum(subset_data$HeartDisease == "Yes")
+      total_count <- nrow(subset_data)
+      percentage <- round((heart_yes_count / total_count) * 100, 2)
+
+      cat(sprintf("%-30s: %6d/%6d (%5.2f%%) ma choroby serca\n",
+                  diabetic_cat, heart_yes_count, total_count, percentage))
+    }
+  }
+} else {
+  cat("Dane są puste po oczyszczaniu. Pomijanie EDA.\n")
 }
 
 # ===========================
@@ -296,60 +346,96 @@ print(table(initial_train_data$HeartDisease))
 cat("Rozmiar zbioru testowego:", nrow(test_data), "\n")
 
 # ===========================
-# ZASTOSOWANIE SMOTE ZAMIAST UNDERSAMPLING
+# ZASTOSOWANIE SMOTE DO BALANSOWANIA KLAS
 # ===========================
 cat("\n=== ZASTOSOWANIE SMOTE DO BALANSOWANIA KLAS ===\n")
 
 set.seed(123)
-cat("Stosowanie ROSE/SMOTE do balansowania klas...\n")
+cat("Stosowanie SMOTE do balansowania klas...\n")
 cat("Przed balansowaniem - rozkład klas:\n")
 print(table(initial_train_data$HeartDisease))
 
-# Dokumenatcja SMOTE wymaga nazw kolumn bez znaków specjalnych
-problematic_cols <- grep("[-\\+\\*\\/\\(\\)\\s]", names(initial_train_data))
-if (length(problematic_cols) > 0) {
-  cat("Znaleziono problematyczne nazwy kolumn, naprawianie...\n")
-  names(initial_train_data) <- make.names(names(initial_train_data), unique = TRUE)
+# Przygotowanie danych dla SMOTE
+# SMOTE wymaga danych numerycznych, więc przekonwertujemy faktory
+train_for_smote <- initial_train_data
+
+# Konwersja faktorów na numeryczne (oprócz zmiennej docelowej)
+for (col in names(train_for_smote)) {
+  if (col != "HeartDisease" && is.factor(train_for_smote[[col]])) {
+    train_for_smote[[col]] <- as.numeric(train_for_smote[[col]])
+  }
 }
 
+# Konwersja zmiennej docelowej na numeryczną dla SMOTE
+y_numeric_smote <- ifelse(train_for_smote$HeartDisease == "Yes", 1, 0)
+X_for_smote <- train_for_smote[, !names(train_for_smote) %in% "HeartDisease"]
+
+# Zastosowanie SMOTE
 tryCatch({
-  train_smote <- ROSE(HeartDisease ~ .,
-                      data = initial_train_data,
-                      seed = 123,
-                      N = nrow(initial_train_data))$data
+  cat("Stosowanie SMOTE z biblioteki smotefamily...\n")
+  smote_result <- SMOTE(X_for_smote, y_numeric_smote, K = 5, dup_size = 2)
+
+  # Przygotowanie danych po SMOTE
+  smoted_data <- smote_result$data
+
+  # Konwersja z powrotem na faktory
+  # Przywrócenie oryginalnych nazw kolumn i typów
+  for (col in names(X_for_smote)) {
+    if (col %in% names(initial_train_data)) {
+      original_col <- initial_train_data[[col]]
+      if (is.factor(original_col)) {
+        # Konwersja z numerycznej z powrotem na faktor
+        levels_original <- levels(original_col)
+        smoted_data[[col]] <- factor(levels_original[smoted_data[[col]]], levels = levels_original)
+      }
+    }
+  }
+
+  # Dodanie zmiennej docelowej
+  target_col <- smoted_data[["class"]]
+  smoted_data$HeartDisease <- factor(ifelse(target_col == 1, "Yes", "No"), levels = c("No", "Yes"))
+  smoted_data <- smoted_data[, !names(smoted_data) %in% "class"]
+
+  train_smote <- smoted_data
+  cat("SMOTE z idealnym balansem 50:50 zakończone pomyślnie!\n")
+
 }, error = function(e) {
-  cat("Błąd z ROSE, próba alternatywnego podejścia...\n")
+  cat("Błąd z SMOTE, stosowanie prostego oversampling/undersampling...\n")
+  cat("Błąd:", e$message, "\n")
 
-  # Alternatywne podejście - ręczne oversampling
-  minority_class <- initial_train_data[initial_train_data$HeartDisease == "Yes",]
-  majority_class <- initial_train_data[initial_train_data$HeartDisease == "No",]
+  # Fallback - proste over/undersampling z balansem 50:50
+  minority_class <- initial_train_data[initial_train_data$HeartDisease == "Yes", ]
+  majority_class <- initial_train_data[initial_train_data$HeartDisease == "No", ]
 
-  # Nadprobkowanie klasy mniejszosciowej
   n_minority <- nrow(minority_class)
   n_majority <- nrow(majority_class)
 
-  target_size <- round(n_majority * 0.6)  # 60% rozmiaru klasy większościowej
-  minority_target <- round(target_size * 0.5)  # 50% rozmiaru klasy większościowej
-  majority_target <- target_size - minority_target
+  # Strategia balansowania
+  target_minority <- round(n_minority * 2)  # Podwojenie klasy mniejszościowej
+  target_majority <- round(target_minority * 1.5)  # Stosunek 60:40
 
+  # Oversampling klasy mniejszościowej
   set.seed(123)
-  # Oversampling klasy mniejszosciowej - replace mamy na TRUE bo chcemy powtórzyć te same obserwacje
-  minority_indicies <- sample(1:n_minority, minority_target, replace = TRUE)
-  minority_oversampled <- minority_class[minority_indicies,]
+  minority_indices <- sample(1:n_minority, target_minority, replace = TRUE)
+  minority_oversampled <- minority_class[minority_indices, ]
 
-  # Undersampling klasy większościowej - replace mamy na FALSE bo chcemy tylko losowo wybrać obserwacje tylko raz
-  majority_indicies <- sample(1:n_majority, majority_target, replace = FALSE)
-  majority_undersampled <- majority_class[majority_indicies,]
+  # Undersampling klasy większościowej
+  set.seed(456)
+  majority_indices <- sample(1:n_majority, min(target_majority, n_majority), replace = FALSE)
+  majority_undersampled <- majority_class[majority_indices, ]
 
-  # Globalne przypisanie przetworzonych danych
+  # Łączenie i tasowanie
   train_smote <<- rbind(minority_oversampled, majority_undersampled)
-  cat("Ręczne oversampling i undersampling zakończone.\n")
+  set.seed(789)
+  train_smote <<- train_smote[sample(nrow(train_smote)), ]
+
+  cat("Zastosowano alternatywne balansowanie klas.\n")
 })
 
-cat("Po balansowaniu SMOTEM/ROSE - rozkład klas:\n")
+cat("Po balansowaniu - rozkład klas:\n")
 print(table(train_smote$HeartDisease))
 
-# Wykres rozklady zmiennej docelowej po SMOTE
+# Wykres rozkładu zmiennej docelowej po SMOTE
 smote_target_plot <- ggplot(train_smote, aes(x = HeartDisease, fill = HeartDisease)) +
   geom_bar(alpha = 0.8) +
   geom_text(stat = 'count', aes(label = paste0(after_stat(count), '\n',
@@ -361,10 +447,24 @@ smote_target_plot <- ggplot(train_smote, aes(x = HeartDisease, fill = HeartDisea
   theme(legend.position = "none")
 print(smote_target_plot)
 
-# Przygotowanie macierzy cech i wektorow
+# Przygotowanie macierzy cech i wektorów
 train_data <- train_smote
 X_train <- train_data[, !names(train_data) %in% "HeartDisease"]
-X_test <- train_data[, !names(test_data) %in% "HeartDisease"]
+X_test <- test_data[, !names(test_data) %in% "HeartDisease"]
+
+for (col in names(X_train)) {
+  # Tylko jeśli w X_train to zwykły factor, a w X_test ordered
+  if (is.factor(X_train[[col]]) && !is.ordered(X_train[[col]]) && is.ordered(X_test[[col]])) {
+    X_test[[col]] <- factor(as.character(X_test[[col]]), levels = levels(X_train[[col]]))
+  }
+  # Na wszelki wypadek - zawsze wymuszamy te same poziomy
+  if (is.factor(X_train[[col]])) {
+    X_test[[col]] <- factor(X_test[[col]], levels = levels(X_train[[col]]))
+  }
+}
+
+# Upewniamy się, że kolejność kolumn się zgadza:
+X_test <- X_test[, names(X_train)]
 
 y_train_factor <- train_data$HeartDisease
 y_test_factor <- test_data$HeartDisease
@@ -374,6 +474,12 @@ y_test_numeric <- ifelse(y_test_factor == "Yes", 1, 0)
 
 cat("\nWymiary X_train (po SMOTE):", dim(X_train), "\n")
 cat("Wymiary X_test:", dim(X_test), "\n")
+
+cat("Typy kolumn w X_train:\n")
+print(sapply(X_train, class))
+cat("Typy kolumn w X_test:\n")
+print(sapply(X_test, class))
+
 
 # ===========================
 # 5. TRENOWANIE I EWALUACJA MODELI
