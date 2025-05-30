@@ -582,4 +582,543 @@ evaluate_model <- function(model, X_test_data, y_test_data_numeric, model_name_s
   return(results)
 }
 
+
 # Trenowanie modeli z ważeniem klas (HYBRID RESAMPLING + CLASS WEIGHTING)
+models <- list()
+model_results <- list()
+
+if (exists("X_train") && exists("y_train_factor") && exists("X_test") && exists("y_test_numeric")) {
+
+  # Obliczenie wag klas na podstawie niezbalansowanego zbioru treningowego
+  original_class_counts <- table(train_smote$HeartDisease)
+  total_samples <- sum(original_class_counts)
+
+  # Inverse frequency weighting
+  weight_no <- total_samples / (2 * original_class_counts["No"])
+  weight_yes <- total_samples / (2 * original_class_counts["Yes"])
+
+  cat("\n=== HYBRID RESAMPLING + CLASS WEIGHTING ===\n")
+  cat("Oryginalne liczby klas w initial_train_data:\n")
+  print(original_class_counts)
+  cat("Obliczone wagi klas:\n")
+  cat("Weight for 'No':", round(weight_no, 4), "\n")
+  cat("Weight for 'Yes':", round(weight_yes, 4), "\n")
+
+  # Tworzenie wektora wag dla obserwacji
+  case_weights <- ifelse(y_train_factor == "No", weight_no, weight_yes)
+
+  # 1. Regresja logistyczna z wagami
+  cat("Trenowanie regresji logistycznej z wagami klas...\n")
+  # Dla GLM wagi muszą być dodatnie i nie powodować ostrzeżeń
+  # Normalizujemy wagi żeby były w rozsądnym zakresie
+  normalized_weights <- case_weights / mean(case_weights)
+  tryCatch({
+    models$logistic <- glm(HeartDisease ~ ., data = train_data, family = binomial(link = "logit"), weights = normalized_weights)
+  }, warning = function(w) {
+    cat("Ostrzeżenie w GLM:", w$message, "\n")
+    models$logistic <<- glm(HeartDisease ~ ., data = train_data, family = binomial(link = "logit"), weights = normalized_weights)
+  })
+  model_results$logistic <- evaluate_model(models$logistic, X_test, y_test_numeric, "Regresja logistyczna (weighted)")
+
+  # 2. Las losowy z wagami klas
+  cat("Trenowanie lasu losowego z wagami klas...\n")
+  # Random Forest wymaga nazw dokładnie takich jak w levels(y_train_factor)
+  actual_levels <- levels(y_train_factor)
+  cat("Poziomy y_train_factor:", paste(actual_levels, collapse = ", "), "\n")
+
+  # Tworzenie wag z prawidłowymi nazwami
+  class_weights_rf <- setNames(c(weight_no, weight_yes), actual_levels)
+  cat("Wagi dla Random Forest:", paste(names(class_weights_rf), "=", round(class_weights_rf, 4), collapse = ", "), "\n")
+
+  models$rf <- randomForest(x = X_train, y = y_train_factor, ntree = 300, importance = TRUE, classwt = class_weights_rf)
+  model_results$rf <- evaluate_model(models$rf, X_test, y_test_numeric, "Las losowy (weighted)")
+
+  # 3. Drzewo decyzyjne z wagami
+  cat("Trenowanie drzewa decyzyjnego z wagami klas...\n")
+  models$tree <- rpart(HeartDisease ~ ., data = train_data, method = "class", weights = case_weights)
+  model_results$tree <- evaluate_model(models$tree, X_test, y_test_numeric, "Drzewo decyzyjne (weighted)")
+
+  # 4. Gradient Boosting z wagami
+  cat("Trenowanie Gradient Boosting z wagami klas...\n")
+  train_data_gbm <- X_train
+  train_data_gbm$HeartDisease_numeric_target <- y_train_numeric
+  models$gbm <- gbm(HeartDisease_numeric_target ~ ., data = train_data_gbm,
+                    distribution = "bernoulli", n.trees = 300, interaction.depth = 3,
+                    shrinkage = 0.1, cv.folds = 6, weights = case_weights)
+  model_results$gbm <- evaluate_model(models$gbm, X_test, y_test_numeric, "Gradient Boosting (weighted)")
+
+  # 5. XGBoost z wagami klas
+  cat("Trenowanie XGBoost z wagami klas...\n")
+  # Przygotowanie danych dla XGBoost
+  X_train_numeric <- X_train
+  factor_cols_train <- sapply(X_train_numeric, is.factor)
+  X_train_numeric[factor_cols_train] <- lapply(X_train_numeric[factor_cols_train], as.numeric)
+
+  X_test_numeric <- X_test
+  factor_cols_test <- sapply(X_test_numeric, is.factor)
+  X_test_numeric[factor_cols_test] <- lapply(X_test_numeric[factor_cols_test], as.numeric)
+
+  train_matrix <- xgb.DMatrix(data = as.matrix(X_train_numeric), label = y_train_numeric, weight = case_weights)
+
+  # Parametry XGBoost z scale_pos_weight
+  scale_pos_weight_value <- weight_yes / weight_no
+  xgb_params <- list(
+    objective = "binary:logistic",
+    eval_metric = "auc",
+    eta = 0.1,
+    max_depth = 6,
+    subsample = 0.8,
+    colsample_bytree = 0.8,
+    scale_pos_weight = scale_pos_weight_value  # Dodatkowo dla XGBoost
+  )
+
+  cat("XGBoost scale_pos_weight:", round(scale_pos_weight_value, 4), "\n")
+
+  models$xgboost <- xgb.train(
+    params = xgb_params,
+    data = train_matrix,
+    nrounds = 200,
+    verbose = 0
+  )
+  model_results$xgboost <- evaluate_model(models$xgboost, X_test_numeric, y_test_numeric, "XGBoost (weighted)")
+
+  # 6. DODATKOWE MODELE BEZ WAG (dla porównania)
+  cat("\n=== MODELE BEZ WAG (dla porównania) ===\n")
+
+  # Las losowy bez wag
+  cat("Trenowanie lasu losowego BEZ wag...\n")
+  models$rf_unweighted <- randomForest(x = X_train, y = y_train_factor, ntree = 300, importance = TRUE)
+  model_results$rf_unweighted <- evaluate_model(models$rf_unweighted, X_test, y_test_numeric, "Las losowy (unweighted)")
+
+  # XGBoost bez wag
+  cat("Trenowanie XGBoost BEZ wag...\n")
+  train_matrix_unweighted <- xgb.DMatrix(data = as.matrix(X_train_numeric), label = y_train_numeric)
+  xgb_params_unweighted <- list(
+    objective = "binary:logistic",
+    eval_metric = "auc",
+    eta = 0.1,
+    max_depth = 6,
+    subsample = 0.8,
+    colsample_bytree = 0.8
+  )
+
+  models$xgboost_unweighted <- xgb.train(
+    params = xgb_params_unweighted,
+    data = train_matrix_unweighted,
+    nrounds = 200,
+    verbose = 0
+  )
+  model_results$xgboost_unweighted <- evaluate_model(models$xgboost_unweighted, X_test_numeric, y_test_numeric, "XGBoost (unweighted)")
+
+} else {
+  cat("Komponenty danych treningowych nie są w pełni dostępne. Pomijanie trenowania modeli.\n")
+}
+
+# ===========================
+# 6. ENSEMBLE MODELI
+# ===========================
+cat("\n=== TWORZENIE ENSEMBLE MODELI ===\n")
+
+if (length(model_results) >= 3) {
+  # Zbieranie prawdopodobieństw z wszystkich modeli
+  ensemble_probs <- data.frame(
+    logistic = if("logistic" %in% names(model_results)) model_results$logistic$probabilities else rep(0.5, length(y_test_numeric)),
+    rf = if("rf" %in% names(model_results)) model_results$rf$probabilities else rep(0.5, length(y_test_numeric)),
+    gbm = if("gbm" %in% names(model_results)) model_results$gbm$probabilities else rep(0.5, length(y_test_numeric)),
+    xgboost = if("xgboost" %in% names(model_results)) model_results$xgboost$probabilities else rep(0.5, length(y_test_numeric))
+  )
+
+  # Ensemble przez uśrednienie
+  ensemble_avg_probs <- rowMeans(ensemble_probs, na.rm = TRUE)
+  ensemble_avg_preds <- ifelse(ensemble_avg_probs > 0.5, 1, 0)
+
+  # Ensemble przez głosowanie większościowe
+  ensemble_votes <- data.frame(
+    logistic = if("logistic" %in% names(model_results)) model_results$logistic$predictions else rep(0, length(y_test_numeric)),
+    rf = if("rf" %in% names(model_results)) model_results$rf$predictions else rep(0, length(y_test_numeric)),
+    gbm = if("gbm" %in% names(model_results)) model_results$gbm$predictions else rep(0, length(y_test_numeric)),
+    xgboost = if("xgboost" %in% names(model_results)) model_results$xgboost$predictions else rep(0, length(y_test_numeric))
+  )
+
+  ensemble_majority_preds <- ifelse(rowSums(ensemble_votes) >= 2, 1, 0)
+
+  # Ewaluacja ensemble uśredniającego
+  ensemble_avg_factor <- factor(ensemble_avg_preds, levels = c(0, 1), labels = c("No", "Yes"))
+  y_test_factor_ensemble <- factor(y_test_numeric, levels = c(0, 1), labels = c("No", "Yes"))
+
+  cm_avg <- confusionMatrix(ensemble_avg_factor, y_test_factor_ensemble, positive = "Yes")
+  roc_avg <- roc(response = y_test_factor_ensemble, predictor = ensemble_avg_probs,
+                 levels = c("No", "Yes"), direction = "<", quiet = TRUE)
+
+  model_results$ensemble_avg <- list(
+    model_name = "Ensemble (Usrednianie)",
+    accuracy = cm_avg$overall['Accuracy'],
+    sensitivity = cm_avg$byClass['Sensitivity'],
+    specificity = cm_avg$byClass['Specificity'],
+    precision = cm_avg$byClass['Precision'],
+    f1 = cm_avg$byClass['F1'],
+    auc = as.numeric(auc(roc_avg)),
+    confusion_matrix = cm_avg$table,
+    roc = roc_avg,
+    predictions = ensemble_avg_preds,
+    probabilities = ensemble_avg_probs
+  )
+
+  # Ewaluacja ensemble głosowania większościowego
+  ensemble_maj_factor <- factor(ensemble_majority_preds, levels = c(0, 1), labels = c("No", "Yes"))
+
+  cm_maj <- confusionMatrix(ensemble_maj_factor, y_test_factor_ensemble, positive = "Yes")
+  roc_maj <- roc(response = y_test_factor_ensemble, predictor = ensemble_avg_probs,
+                 levels = c("No", "Yes"), direction = "<", quiet = TRUE)
+
+  model_results$ensemble_majority <- list(
+    model_name = "Ensemble (Glosowanie wiekszosciowe)",
+    accuracy = cm_maj$overall['Accuracy'],
+    sensitivity = cm_maj$byClass['Sensitivity'],
+    specificity = cm_maj$byClass['Specificity'],
+    precision = cm_maj$byClass['Precision'],
+    f1 = cm_maj$byClass['F1'],
+    auc = as.numeric(auc(roc_maj)),
+    confusion_matrix = cm_maj$table,
+    roc = roc_maj,
+    predictions = ensemble_majority_preds,
+    probabilities = ensemble_avg_probs
+  )
+
+  cat("Ensemble modeli utworzony pomyślnie!\n")
+  cat("Ensemble (Usrednianie) - Dokladnosc:", round(cm_avg$overall['Accuracy'], 4),
+      ", AUC:", round(auc(roc_avg), 4), "\n")
+  cat("Ensemble (Glosowanie) - Dokladnosc:", round(cm_maj$overall['Accuracy'], 4),
+      ", AUC:", round(auc(roc_maj), 4), "\n")
+}
+
+# ===========================
+# 7. PORÓWNANIE WYNIKÓW
+# ===========================
+if (length(model_results) > 0) {
+  results_df <- data.frame(
+    Model = character(), Accuracy = numeric(), Sensitivity = numeric(),
+    Specificity = numeric(), Precision = numeric(), F1_Score = numeric(),
+    AUC = numeric(), stringsAsFactors = FALSE
+  )
+
+  for (i in seq_along(model_results)) {
+    res <- model_results[[i]]
+    results_df <- rbind(results_df, data.frame(
+      Model = res$model_name,
+      Accuracy = round(res$accuracy, 4),
+      Sensitivity = round(res$sensitivity, 4),
+      Specificity = round(res$specificity, 4),
+      Precision = round(res$precision, 4),
+      F1_Score = round(res$f1, 4),
+      AUC = round(res$auc, 4)
+    ))
+  }
+  results_df <- results_df[order(results_df$AUC, decreasing = TRUE),]
+  cat("\n=== POROWNANIE WYDAJNOSCI MODELI ===\n")
+  print(kable(results_df, row.names = FALSE))
+
+  # Wykres krzywych ROC
+  roc_plot <- ggplot() +
+    labs(title = "Porownanie krzywych ROC",
+         x = "Wskaznik falszywie pozytywnych (1 - Specyficznosc)",
+         y = "Wskaznik prawdziwie pozytywnych (Czulosc)")
+
+  colors_palette <- RColorBrewer::brewer.pal(max(3, length(model_results)), "Set1")
+  if (length(model_results) > length(colors_palette)) {
+    colors_palette <- rainbow(length(model_results))
+  }
+
+  # Dodanie krzywych ROC dla każdego modelu
+  for (i in seq_along(model_results)) {
+    res <- model_results[[i]]
+    if (!is.null(res$roc) && inherits(res$roc, "roc")) {
+      roc_data <- data.frame(fpr = 1 - res$roc$specificities, tpr = res$roc$sensitivities)
+      roc_data <- roc_data[order(roc_data$fpr, roc_data$tpr),]
+      roc_plot <- roc_plot +
+        geom_line(data = roc_data, aes(x = fpr, y = tpr),
+                  color = colors_palette[i], linewidth = 1) +
+        annotate("text", x = 0.65, y = 0.05 + i * 0.06,
+                 label = paste(res$model_name, "AUC =", round(res$auc, 3)),
+                 color = colors_palette[i], size = 3, hjust = 0)
+    }
+  }
+  roc_plot <- roc_plot +
+    geom_abline(intercept = 0, slope = 1, linetype = "dashed", alpha = 0.5) +
+    coord_cartesian(xlim = c(0, 1), ylim = c(0, 1)) +
+    theme_minimal()
+  print(roc_plot)
+
+  # Ważność cech dla lasu losowego
+  if ("rf" %in% names(models) && !is.null(models$rf$importance)) {
+    imp_matrix <- importance(models$rf)
+    importance_col_name <- "MeanDecreaseGini"
+    if (!importance_col_name %in% colnames(imp_matrix)) {
+      importance_col_name <- colnames(imp_matrix)[1]
+    }
+
+    importance_data <- data.frame(Feature = rownames(imp_matrix),
+                                  Importance = imp_matrix[, importance_col_name])
+    importance_data <- importance_data[order(importance_data$Importance, decreasing = TRUE),]
+
+    feature_importance_plot <- ggplot(head(importance_data, 15),
+                                      aes(x = reorder(Feature, Importance), y = Importance)) +
+      geom_col(fill = "#3FFEBA", alpha = 0.8) +
+      coord_flip() +
+      labs(title = "15 najwazniejszych cech (Las losowy)",
+           x = "Cechy", y = importance_col_name)
+    print(feature_importance_plot)
+  }
+
+  # Ważność cech dla XGBoost
+  if ("xgboost" %in% names(models)) {
+    xgb_importance <- xgb.importance(model = models$xgboost)
+
+    xgb_importance_plot <- ggplot(head(xgb_importance, 15),
+                                  aes(x = reorder(Feature, Gain), y = Gain)) +
+      geom_col(fill = "#FC05FB", alpha = 0.8) +
+      coord_flip() +
+      labs(title = "15 najwazniejszych cech (XGBoost)",
+           x = "Cechy", y = "Gain")
+    print(xgb_importance_plot)
+  }
+}
+#
+# # ===========================
+# # 8. DOSTRAJANIE HIPERPARAMETRÓW NAJLEPSZEGO MODELU
+# # ===========================
+# if (exists("train_data") && length(model_results) > 0) {
+#   cat("\n=== DOSTRAJANIE HIPERPARAMETROW NAJLEPSZEGO MODELU ===\n")
+#
+#   # Znajdź najlepszy model według różnych metryk
+#   best_auc_model <- results_df$Model[which.max(results_df$AUC)]
+#   # Obliczenie zbalansowanej metryki uwzględniającej zarówno sensitivity jak i specificity
+#   results_df$Balanced_Score <- (results_df$Sensitivity + results_df$Specificity) / 2
+#   best_balanced_model <- results_df$Model[which.max(results_df$Balanced_Score)]
+#
+#   cat("Najlepszy model według AUC:", best_auc_model, "\n")
+#   cat("Najlepszy model według zbalansowanej metryki (sensitivity + specificity)/2:",
+#       best_balanced_model, "\n")
+#
+#   # Określ model do dostrojenia (możemy wybrać ten z lepszym zbalansowaniem)
+#   best_model_name <- best_balanced_model
+#   cat("Wybrano model do dostrajania:", best_model_name, "\n\n")
+#
+#   # Ustawienia dla walidacji krzyżowej
+#   train_control_cv <- trainControl(method = "cv", number = 5,
+#                                    summaryFunction = twoClassSummary,
+#                                    classProbs = TRUE,
+#                                    verboseIter = FALSE)
+#
+#   # Przygotowanie danych
+#   num_predictors <- ncol(X_train)
+#
+#   # DOSTRAJANIE LASU LOSOWEGO
+#   if (grepl("Las losowy|Random Forest", best_model_name, ignore.case = TRUE) ||
+#     "rf" %in% names(models)) {
+#
+#     mtry_default <- floor(sqrt(num_predictors))
+#     mtry_range <- unique(c(max(1, mtry_default - 2), mtry_default,
+#                            min(num_predictors, mtry_default + 2), 2, 4, 6, 8))
+#     mtry_range <- mtry_range[mtry_range <= num_predictors & mtry_range > 0]
+#     mtry_range <- sort(unique(mtry_range))
+#
+#     rf_grid_tune <- expand.grid(mtry = mtry_range)
+#     cat("Dostrajanie lasu losowego z mtry:", paste(mtry_range, collapse = ", "), "\n")
+#
+#     rf_tuned_model <- NULL
+#     tryCatch({
+#       rf_tuned_model <- train(
+#         HeartDisease ~ .,
+#         data = train_data,
+#         method = "rf",
+#         trControl = train_control_cv,
+#         tuneGrid = rf_grid_tune,
+#         metric = "ROC",
+#         ntree = 300
+#       )
+#       print(rf_tuned_model)
+#       plot(rf_tuned_model)
+#     }, error = function(e) {
+#       cat("Blad podczas dostrajania lasu losowego:", e$message, "\n")
+#     })
+#
+#     tuned_model <- rf_tuned_model
+#     model_type <- "rf"
+#   }
+#
+#     # DOSTRAJANIE XGBOOST
+#   else if (grepl("XGBoost", best_model_name, ignore.case = TRUE) ||
+#     "xgb" %in% names(models)) {
+#
+#     xgb_grid_tune <- expand.grid(
+#       nrounds = c(50, 100, 150),
+#       eta = c(0.01, 0.1, 0.3),
+#       max_depth = c(3, 5, 7),
+#       gamma = c(0, 0.1, 0.5),
+#       colsample_bytree = c(0.5, 0.7, 1.0),
+#       min_child_weight = c(1, 3, 5),
+#       subsample = c(0.5, 0.7, 1.0)
+#     )
+#
+#     # Można też użyć mniejszej siatki dla szybszego testowania
+#     xgb_grid_tune_small <- expand.grid(
+#       nrounds = c(100),
+#       eta = c(0.1, 0.3),
+#       max_depth = c(3, 6),
+#       gamma = 0,
+#       colsample_bytree = 1,
+#       min_child_weight = 1,
+#       subsample = 1
+#     )
+#
+#     cat("Dostrajanie XGBoost z parametrami\n")
+#
+#     xgb_tuned_model <- NULL
+#     tryCatch({
+#       xgb_tuned_model <- train(
+#         HeartDisease ~ .,
+#         data = train_data,
+#         method = "xgbTree",
+#         trControl = train_control_cv,
+#         tuneGrid = xgb_grid_tune_small,  # Użyj smaller grid dla testów
+#         metric = "ROC"
+#       )
+#       print(xgb_tuned_model)
+#       plot(xgb_tuned_model)
+#     }, error = function(e) {
+#       cat("Blad podczas dostrajania XGBoost:", e$message, "\n")
+#     })
+#
+#     tuned_model <- xgb_tuned_model
+#     model_type <- "xgb"
+#   }
+#
+#     # DOSTRAJANIE GRADIENT BOOSTING
+#   else if (grepl("Gradient Boosting|GBM", best_model_name, ignore.case = TRUE) ||
+#     "gbm" %in% names(models)) {
+#
+#     gbm_grid_tune <- expand.grid(
+#       n.trees = c(100, 200, 300),
+#       interaction.depth = c(2, 3, 5),
+#       shrinkage = c(0.01, 0.05, 0.1),
+#       n.minobsinnode = c(5, 10, 15)
+#     )
+#
+#     # Mniejsza siatka dla testów
+#     gbm_grid_tune_small <- expand.grid(
+#       n.trees = c(100, 200),
+#       interaction.depth = c(3, 5),
+#       shrinkage = c(0.05, 0.1),
+#       n.minobsinnode = 10
+#     )
+#
+#     cat("Dostrajanie Gradient Boosting z parametrami\n")
+#
+#     gbm_tuned_model <- NULL
+#     tryCatch({
+#       gbm_tuned_model <- train(
+#         HeartDisease ~ .,
+#         data = train_data,
+#         method = "gbm",
+#         trControl = train_control_cv,
+#         tuneGrid = gbm_grid_tune_small,  # Użyj smaller grid dla testów
+#         metric = "ROC",
+#         verbose = FALSE
+#       )
+#       print(gbm_tuned_model)
+#       plot(gbm_tuned_model)
+#     }, error = function(e) {
+#       cat("Blad podczas dostrajania Gradient Boosting:", e$message, "\n")
+#     })
+#
+#     tuned_model <- gbm_tuned_model
+#     model_type <- "gbm"
+#   }
+#
+#   # EWALUACJA KOŃCOWEGO DOSTROJONEGO MODELU
+#   if (exists("tuned_model") && !is.null(tuned_model)) {
+#     final_predictions <- predict(tuned_model, newdata = test_data)
+#     final_probabilities <- predict(tuned_model, newdata = test_data, type = "prob")
+#
+#     final_cm <- confusionMatrix(final_predictions, y_test_factor, positive = "Yes")
+#     cat("\n=== WYDAJNOSC KONCOWEGO DOSTROJONEGO MODELU ===\n")
+#     print(final_cm)
+#
+#     final_roc <- roc(response = y_test_factor,
+#                      predictor = final_probabilities$Yes,
+#                      levels = c("No", "Yes"), direction = "<", quiet = TRUE)
+#     cat("Koncowy AUC dostrojonego modelu:", round(auc(final_roc), 4), "\n")
+#     plot(final_roc, main = paste0("Krzywa ROC dla koncowego dostrojonego modelu: ", best_model_name),
+#          print.auc = TRUE)
+#
+#     # Porównanie z oryginalnym modelem
+#     cat("\n=== POROWNANIE Z ORYGINALNYM MODELEM ===\n")
+#     original_metric <- results_df[results_df$Model == best_model_name, ]
+#     tuned_metrics <- data.frame(
+#       Model = paste0("Dostrojony ", best_model_name),
+#       Accuracy = round(final_cm$overall['Accuracy'], 4),
+#       Sensitivity = round(final_cm$byClass['Sensitivity'], 4),
+#       Specificity = round(final_cm$byClass['Specificity'], 4),
+#       Precision = round(final_cm$byClass['Precision'], 4),
+#       F1_Score = round(final_cm$byClass['F1'], 4),
+#       AUC = round(auc(final_roc), 4),
+#       Balanced_Score = round((final_cm$byClass['Sensitivity'] + final_cm$byClass['Specificity'])/2, 4)
+#     )
+#
+#     comparison_table <- rbind(original_metric, tuned_metrics)
+#     print(comparison_table)
+#
+#     # Zapisanie najlepszego modelu
+#     if (model_type == "rf") {
+#       best_model <- tuned_model$finalModel
+#     } else {
+#       best_model <- tuned_model
+#     }
+#
+#
+#     if (!is.null(tuned_model$results)) {
+#       cat("\n=== WPŁYW PARAMETRÓW NA WYDAJNOŚĆ MODELU ===\n")
+#       print(tuned_model$results)
+#     }
+#   } else {
+#     cat("Nie udało się dostroić żadnego modelu.\n")
+#   }
+# }
+
+# ===========================
+# 9. WNIOSKI
+# ===========================
+cat("\n=== WNIOSKI ===\n")
+if (exists("results_df") && nrow(results_df) > 0 && !all(is.na(results_df$AUC))) {
+  cat("1. Najlepiej wykonujacy sie model (wedlug AUC):",
+      results_df$Model[which.max(results_df$AUC)],
+      "- AUC:", max(results_df$AUC, na.rm = TRUE), "\n")
+}
+
+cat("2. Zastosowane techniki:\n")
+cat("   - SMOTE do balansowania klas (lub alternatywne over/undersampling)\n")
+cat("   - Dodano XGBoost jako nowy algorytm\n")
+cat("   - Utworzono ensemble modeli (usrednianie i glosowanie wiekszosciowe)\n")
+
+if (exists("final_cm_caret") && !is.null(final_cm_caret)) {
+  cat("3. Koncowa dokladnosc dostrojonego modelu:",
+      round(final_cm_caret$overall['Accuracy'], 4), "\n")
+}
+
+if (exists("final_roc_caret")) {
+  cat("4. Koncowy AUC dostrojonego modelu:", round(auc(final_roc_caret), 4), "\n")
+}
+
+cat("\n=== KLUCZOWE SPOSTRZEZENIA ===\n")
+cat("- SMOTE pomoglo w lepszym balansowaniu klas niz undersampling\n")
+cat("- XGBoost czesto osiaga wysokie wyniki w problemach klasyfikacji\n")
+cat("- Ensemble modeli moze poprawic stabilnosc predykcji\n")
+cat("- Najwazniejsze cechy czesto odzwierciedlaja znane czynniki ryzyka chorob serca\n")
+
+if (exists("model_results") && "ensemble_avg" %in% names(model_results)) {
+  cat("- Ensemble (usrednianie) osiagnal AUC:",
+      round(model_results$ensemble_avg$auc, 4), "\n")
+}
+
+cat("\nAnaliza nowego zbioru danych zakonczona pomyslnie!\n")
