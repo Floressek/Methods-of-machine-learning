@@ -883,208 +883,208 @@ if (length(model_results) > 0) {
     print(xgb_importance_plot)
   }
 }
-#
-# # ===========================
-# # 8. DOSTRAJANIE HIPERPARAMETRÓW NAJLEPSZEGO MODELU
-# # ===========================
-# if (exists("train_data") && length(model_results) > 0) {
-#   cat("\n=== DOSTRAJANIE HIPERPARAMETROW NAJLEPSZEGO MODELU ===\n")
-#
-#   # Znajdź najlepszy model według różnych metryk
-#   best_auc_model <- results_df$Model[which.max(results_df$AUC)]
-#   # Obliczenie zbalansowanej metryki uwzględniającej zarówno sensitivity jak i specificity
-#   results_df$Balanced_Score <- (results_df$Sensitivity + results_df$Specificity) / 2
-#   best_balanced_model <- results_df$Model[which.max(results_df$Balanced_Score)]
-#
-#   cat("Najlepszy model według AUC:", best_auc_model, "\n")
-#   cat("Najlepszy model według zbalansowanej metryki (sensitivity + specificity)/2:",
-#       best_balanced_model, "\n")
-#
-#   # Określ model do dostrojenia (możemy wybrać ten z lepszym zbalansowaniem)
-#   best_model_name <- best_balanced_model
-#   cat("Wybrano model do dostrajania:", best_model_name, "\n\n")
-#
-#   # Ustawienia dla walidacji krzyżowej
-#   train_control_cv <- trainControl(method = "cv", number = 5,
-#                                    summaryFunction = twoClassSummary,
-#                                    classProbs = TRUE,
-#                                    verboseIter = FALSE)
-#
-#   # Przygotowanie danych
-#   num_predictors <- ncol(X_train)
-#
-#   # DOSTRAJANIE LASU LOSOWEGO
-#   if (grepl("Las losowy|Random Forest", best_model_name, ignore.case = TRUE) ||
-#     "rf" %in% names(models)) {
-#
-#     mtry_default <- floor(sqrt(num_predictors))
-#     mtry_range <- unique(c(max(1, mtry_default - 2), mtry_default,
-#                            min(num_predictors, mtry_default + 2), 2, 4, 6, 8))
-#     mtry_range <- mtry_range[mtry_range <= num_predictors & mtry_range > 0]
-#     mtry_range <- sort(unique(mtry_range))
-#
-#     rf_grid_tune <- expand.grid(mtry = mtry_range)
-#     cat("Dostrajanie lasu losowego z mtry:", paste(mtry_range, collapse = ", "), "\n")
-#
-#     rf_tuned_model <- NULL
-#     tryCatch({
-#       rf_tuned_model <- train(
-#         HeartDisease ~ .,
-#         data = train_data,
-#         method = "rf",
-#         trControl = train_control_cv,
-#         tuneGrid = rf_grid_tune,
-#         metric = "ROC",
-#         ntree = 300
-#       )
-#       print(rf_tuned_model)
-#       plot(rf_tuned_model)
-#     }, error = function(e) {
-#       cat("Blad podczas dostrajania lasu losowego:", e$message, "\n")
-#     })
-#
-#     tuned_model <- rf_tuned_model
-#     model_type <- "rf"
-#   }
-#
-#     # DOSTRAJANIE XGBOOST
-#   else if (grepl("XGBoost", best_model_name, ignore.case = TRUE) ||
-#     "xgb" %in% names(models)) {
-#
-#     xgb_grid_tune <- expand.grid(
-#       nrounds = c(50, 100, 150),
-#       eta = c(0.01, 0.1, 0.3),
-#       max_depth = c(3, 5, 7),
-#       gamma = c(0, 0.1, 0.5),
-#       colsample_bytree = c(0.5, 0.7, 1.0),
-#       min_child_weight = c(1, 3, 5),
-#       subsample = c(0.5, 0.7, 1.0)
-#     )
-#
-#     # Można też użyć mniejszej siatki dla szybszego testowania
-#     xgb_grid_tune_small <- expand.grid(
-#       nrounds = c(100),
-#       eta = c(0.1, 0.3),
-#       max_depth = c(3, 6),
-#       gamma = 0,
-#       colsample_bytree = 1,
-#       min_child_weight = 1,
-#       subsample = 1
-#     )
-#
-#     cat("Dostrajanie XGBoost z parametrami\n")
-#
-#     xgb_tuned_model <- NULL
-#     tryCatch({
-#       xgb_tuned_model <- train(
-#         HeartDisease ~ .,
-#         data = train_data,
-#         method = "xgbTree",
-#         trControl = train_control_cv,
-#         tuneGrid = xgb_grid_tune_small,  # Użyj smaller grid dla testów
-#         metric = "ROC"
-#       )
-#       print(xgb_tuned_model)
-#       plot(xgb_tuned_model)
-#     }, error = function(e) {
-#       cat("Blad podczas dostrajania XGBoost:", e$message, "\n")
-#     })
-#
-#     tuned_model <- xgb_tuned_model
-#     model_type <- "xgb"
-#   }
-#
-#     # DOSTRAJANIE GRADIENT BOOSTING
-#   else if (grepl("Gradient Boosting|GBM", best_model_name, ignore.case = TRUE) ||
-#     "gbm" %in% names(models)) {
-#
-#     gbm_grid_tune <- expand.grid(
-#       n.trees = c(100, 200, 300),
-#       interaction.depth = c(2, 3, 5),
-#       shrinkage = c(0.01, 0.05, 0.1),
-#       n.minobsinnode = c(5, 10, 15)
-#     )
-#
-#     # Mniejsza siatka dla testów
-#     gbm_grid_tune_small <- expand.grid(
-#       n.trees = c(100, 200),
-#       interaction.depth = c(3, 5),
-#       shrinkage = c(0.05, 0.1),
-#       n.minobsinnode = 10
-#     )
-#
-#     cat("Dostrajanie Gradient Boosting z parametrami\n")
-#
-#     gbm_tuned_model <- NULL
-#     tryCatch({
-#       gbm_tuned_model <- train(
-#         HeartDisease ~ .,
-#         data = train_data,
-#         method = "gbm",
-#         trControl = train_control_cv,
-#         tuneGrid = gbm_grid_tune_small,  # Użyj smaller grid dla testów
-#         metric = "ROC",
-#         verbose = FALSE
-#       )
-#       print(gbm_tuned_model)
-#       plot(gbm_tuned_model)
-#     }, error = function(e) {
-#       cat("Blad podczas dostrajania Gradient Boosting:", e$message, "\n")
-#     })
-#
-#     tuned_model <- gbm_tuned_model
-#     model_type <- "gbm"
-#   }
-#
-#   # EWALUACJA KOŃCOWEGO DOSTROJONEGO MODELU
-#   if (exists("tuned_model") && !is.null(tuned_model)) {
-#     final_predictions <- predict(tuned_model, newdata = test_data)
-#     final_probabilities <- predict(tuned_model, newdata = test_data, type = "prob")
-#
-#     final_cm <- confusionMatrix(final_predictions, y_test_factor, positive = "Yes")
-#     cat("\n=== WYDAJNOSC KONCOWEGO DOSTROJONEGO MODELU ===\n")
-#     print(final_cm)
-#
-#     final_roc <- roc(response = y_test_factor,
-#                      predictor = final_probabilities$Yes,
-#                      levels = c("No", "Yes"), direction = "<", quiet = TRUE)
-#     cat("Koncowy AUC dostrojonego modelu:", round(auc(final_roc), 4), "\n")
-#     plot(final_roc, main = paste0("Krzywa ROC dla koncowego dostrojonego modelu: ", best_model_name),
-#          print.auc = TRUE)
-#
-#     # Porównanie z oryginalnym modelem
-#     cat("\n=== POROWNANIE Z ORYGINALNYM MODELEM ===\n")
-#     original_metric <- results_df[results_df$Model == best_model_name, ]
-#     tuned_metrics <- data.frame(
-#       Model = paste0("Dostrojony ", best_model_name),
-#       Accuracy = round(final_cm$overall['Accuracy'], 4),
-#       Sensitivity = round(final_cm$byClass['Sensitivity'], 4),
-#       Specificity = round(final_cm$byClass['Specificity'], 4),
-#       Precision = round(final_cm$byClass['Precision'], 4),
-#       F1_Score = round(final_cm$byClass['F1'], 4),
-#       AUC = round(auc(final_roc), 4),
-#       Balanced_Score = round((final_cm$byClass['Sensitivity'] + final_cm$byClass['Specificity'])/2, 4)
-#     )
-#
-#     comparison_table <- rbind(original_metric, tuned_metrics)
-#     print(comparison_table)
-#
-#     # Zapisanie najlepszego modelu
-#     if (model_type == "rf") {
-#       best_model <- tuned_model$finalModel
-#     } else {
-#       best_model <- tuned_model
-#     }
-#
-#
-#     if (!is.null(tuned_model$results)) {
-#       cat("\n=== WPŁYW PARAMETRÓW NA WYDAJNOŚĆ MODELU ===\n")
-#       print(tuned_model$results)
-#     }
-#   } else {
-#     cat("Nie udało się dostroić żadnego modelu.\n")
-#   }
-# }
+
+# ===========================
+# 8. DOSTRAJANIE HIPERPARAMETRÓW NAJLEPSZEGO MODELU
+# ===========================
+if (exists("train_data") && length(model_results) > 0) {
+  cat("\n=== DOSTRAJANIE HIPERPARAMETROW NAJLEPSZEGO MODELU ===\n")
+
+  # Znajdź najlepszy model według różnych metryk
+  best_auc_model <- results_df$Model[which.max(results_df$AUC)]
+  # Obliczenie zbalansowanej metryki uwzględniającej zarówno sensitivity jak i specificity
+  results_df$Balanced_Score <- (results_df$Sensitivity + results_df$Specificity) / 2
+  best_balanced_model <- results_df$Model[which.max(results_df$Balanced_Score)]
+
+  cat("Najlepszy model według AUC:", best_auc_model, "\n")
+  cat("Najlepszy model według zbalansowanej metryki (sensitivity + specificity)/2:",
+      best_balanced_model, "\n")
+
+  # Określ model do dostrojenia (możemy wybrać ten z lepszym zbalansowaniem)
+  best_model_name <- best_balanced_model
+  cat("Wybrano model do dostrajania:", best_model_name, "\n\n")
+
+  # Ustawienia dla walidacji krzyżowej
+  train_control_cv <- trainControl(method = "cv", number = 5,
+                                   summaryFunction = twoClassSummary,
+                                   classProbs = TRUE,
+                                   verboseIter = FALSE)
+
+  # Przygotowanie danych
+  num_predictors <- ncol(X_train)
+
+  # DOSTRAJANIE LASU LOSOWEGO
+  if (grepl("Las losowy|Random Forest", best_model_name, ignore.case = TRUE) ||
+    "rf" %in% names(models)) {
+
+    mtry_default <- floor(sqrt(num_predictors))
+    mtry_range <- unique(c(max(1, mtry_default - 2), mtry_default,
+                           min(num_predictors, mtry_default + 2), 8, 6, 12, 14))
+    mtry_range <- mtry_range[mtry_range <= num_predictors & mtry_range > 0]
+    mtry_range <- sort(unique(mtry_range))
+
+    rf_grid_tune <- expand.grid(mtry = mtry_range)
+    cat("Dostrajanie lasu losowego z mtry:", paste(mtry_range, collapse = ", "), "\n")
+
+    rf_tuned_model <- NULL
+    tryCatch({
+      rf_tuned_model <- train(
+        HeartDisease ~ .,
+        data = train_data,
+        method = "rf",
+        trControl = train_control_cv,
+        tuneGrid = rf_grid_tune,
+        metric = "ROC",
+        ntree = 300
+      )
+      print(rf_tuned_model)
+      plot(rf_tuned_model)
+    }, error = function(e) {
+      cat("Blad podczas dostrajania lasu losowego:", e$message, "\n")
+    })
+
+    tuned_model <- rf_tuned_model
+    model_type <- "rf"
+  }
+
+    # DOSTRAJANIE XGBOOST
+  else if (grepl("XGBoost", best_model_name, ignore.case = TRUE) ||
+    "xgb" %in% names(models)) {
+
+    xgb_grid_tune <- expand.grid(
+      nrounds = c(50, 100, 150),
+      eta = c(0.01, 0.1, 0.3),
+      max_depth = c(3, 5, 7),
+      gamma = c(0, 0.1, 0.5),
+      colsample_bytree = c(0.5, 0.7, 1.0),
+      min_child_weight = c(1, 3, 5),
+      subsample = c(0.5, 0.7, 1.0)
+    )
+
+    # Można też użyć mniejszej siatki dla szybszego testowania
+    xgb_grid_tune_small <- expand.grid(
+      nrounds = c(100),
+      eta = c(0.1, 0.3),
+      max_depth = c(3, 6),
+      gamma = 0,
+      colsample_bytree = 1,
+      min_child_weight = 1,
+      subsample = 1
+    )
+
+    cat("Dostrajanie XGBoost z parametrami\n")
+
+    xgb_tuned_model <- NULL
+    tryCatch({
+      xgb_tuned_model <- train(
+        HeartDisease ~ .,
+        data = train_data,
+        method = "xgbTree",
+        trControl = train_control_cv,
+        tuneGrid = xgb_grid_tune_small,  # Użyj smaller grid dla testów
+        metric = "ROC"
+      )
+      print(xgb_tuned_model)
+      plot(xgb_tuned_model)
+    }, error = function(e) {
+      cat("Blad podczas dostrajania XGBoost:", e$message, "\n")
+    })
+
+    tuned_model <- xgb_tuned_model
+    model_type <- "xgb"
+  }
+
+    # DOSTRAJANIE GRADIENT BOOSTING
+  else if (grepl("Gradient Boosting|GBM", best_model_name, ignore.case = TRUE) ||
+    "gbm" %in% names(models)) {
+
+    gbm_grid_tune <- expand.grid(
+      n.trees = c(100, 200, 300),
+      interaction.depth = c(2, 3, 5),
+      shrinkage = c(0.01, 0.05, 0.1),
+      n.minobsinnode = c(5, 10, 15)
+    )
+
+    # Mniejsza siatka dla testów
+    gbm_grid_tune_small <- expand.grid(
+      n.trees = c(100, 200),
+      interaction.depth = c(3, 5),
+      shrinkage = c(0.05, 0.1),
+      n.minobsinnode = 10
+    )
+
+    cat("Dostrajanie Gradient Boosting z parametrami\n")
+
+    gbm_tuned_model <- NULL
+    tryCatch({
+      gbm_tuned_model <- train(
+        HeartDisease ~ .,
+        data = train_data,
+        method = "gbm",
+        trControl = train_control_cv,
+        tuneGrid = gbm_grid_tune_small,  # Użyj smaller grid dla testów
+        metric = "ROC",
+        verbose = FALSE
+      )
+      print(gbm_tuned_model)
+      plot(gbm_tuned_model)
+    }, error = function(e) {
+      cat("Blad podczas dostrajania Gradient Boosting:", e$message, "\n")
+    })
+
+    tuned_model <- gbm_tuned_model
+    model_type <- "gbm"
+  }
+
+  # EWALUACJA KOŃCOWEGO DOSTROJONEGO MODELU
+  if (exists("tuned_model") && !is.null(tuned_model)) {
+    final_predictions <- predict(tuned_model, newdata = test_data)
+    final_probabilities <- predict(tuned_model, newdata = test_data, type = "prob")
+
+    final_cm <- confusionMatrix(final_predictions, y_test_factor, positive = "Yes")
+    cat("\n=== WYDAJNOSC KONCOWEGO DOSTROJONEGO MODELU ===\n")
+    print(final_cm)
+
+    final_roc <- roc(response = y_test_factor,
+                     predictor = final_probabilities$Yes,
+                     levels = c("No", "Yes"), direction = "<", quiet = TRUE)
+    cat("Koncowy AUC dostrojonego modelu:", round(auc(final_roc), 4), "\n")
+    plot(final_roc, main = paste0("Krzywa ROC dla koncowego dostrojonego modelu: ", best_model_name),
+         print.auc = TRUE)
+
+    # Porównanie z oryginalnym modelem
+    cat("\n=== POROWNANIE Z ORYGINALNYM MODELEM ===\n")
+    original_metric <- results_df[results_df$Model == best_model_name, ]
+    tuned_metrics <- data.frame(
+      Model = paste0("Dostrojony ", best_model_name),
+      Accuracy = round(final_cm$overall['Accuracy'], 4),
+      Sensitivity = round(final_cm$byClass['Sensitivity'], 4),
+      Specificity = round(final_cm$byClass['Specificity'], 4),
+      Precision = round(final_cm$byClass['Precision'], 4),
+      F1_Score = round(final_cm$byClass['F1'], 4),
+      AUC = round(auc(final_roc), 4),
+      Balanced_Score = round((final_cm$byClass['Sensitivity'] + final_cm$byClass['Specificity'])/2, 4)
+    )
+
+    comparison_table <- rbind(original_metric, tuned_metrics)
+    print(comparison_table)
+
+    # Zapisanie najlepszego modelu
+    if (model_type == "rf") {
+      best_model <- tuned_model$finalModel
+    } else {
+      best_model <- tuned_model
+    }
+
+
+    if (!is.null(tuned_model$results)) {
+      cat("\n=== WPŁYW PARAMETRÓW NA WYDAJNOŚĆ MODELU ===\n")
+      print(tuned_model$results)
+    }
+  } else {
+    cat("Nie udało się dostroić żadnego modelu.\n")
+  }
+}
 
 # ===========================
 # 9. WNIOSKI
